@@ -1,4 +1,4 @@
-package main;
+package uk.ac.ed.easyccg.main;
 
 import java.io.File;
 import java.io.IOException;
