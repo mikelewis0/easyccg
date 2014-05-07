@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<classpath>
+	<classpathentry kind="src" path="src"/>
+	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER"/>
+	<classpathentry kind="lib" path="lib/guava-15.0.jar"/>
+	<classpathentry kind="lib" path="lib/mtj-1.0-snapshot.jar">
+		<attributes>
+			<attribute name="org.eclipse.jdt.launching.CLASSPATH_ATTR_LIBRARY_PATH_ENTRY" value="easyccg/lib/mallet-deps/netlib-java-1.1.1/native_ref/xbuilds/linux-x86_64"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="lib/jewelcli-0.7.6.jar"/>
+	<classpathentry kind="lib" path="lib/edu.mit.jwi_2.3.0.jar"/>
+	<classpathentry kind="output" path="bin"/>
+</classpath>
