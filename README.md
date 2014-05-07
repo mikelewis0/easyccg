@@ -3,7 +3,8 @@ easyccg
 
 EasyCCG is a CCG parser created by Mike Lewis.
 
-Models are available from: https://drive.google.com/#folders/0B7AY6PGZ8lc-NGVOcUFXNU5VWXc
+Pre-trained models are available from: https://drive.google.com/#folders/0B7AY6PGZ8lc-NGVOcUFXNU5VWXc
+To train new models, follow the instructions in training/README
 
 Basic usage:
     java -jar easyccg.jar --model model
