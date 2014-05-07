@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<project default="create_run_jar" name="Create Runnable Jar for Project easyccg">
+    <!--this file was created by Eclipse Runnable JAR Export Wizard-->
+    <!--ANT 1.7 is required                                        -->
+    <target name="create_run_jar">
+        <jar destfile="/afs/inf.ed.ac.uk/user/s10/s1049478/workspace/easyccg/easyccg.jar" filesetmanifest="mergewithoutmain">
+            <manifest>
+                <attribute name="Main-Class" value="uk.ac.ed.easyccg.main.EasyCCG"/>
+                <attribute name="Class-Path" value="."/>
+            </manifest>
+            <fileset dir="/afs/inf.ed.ac.uk/user/s10/s1049478/workspace/easyccg/bin"/>
+            <zipfileset excludes="META-INF/*.SF" src="/afs/inf.ed.ac.uk/user/s10/s1049478/workspace/easyccg/lib/guava-15.0.jar"/>
+            <zipfileset excludes="META-INF/*.SF" src="/afs/inf.ed.ac.uk/user/s10/s1049478/workspace/easyccg/lib/mtj-1.0-snapshot.jar"/>
+            <zipfileset excludes="META-INF/*.SF" src="/afs/inf.ed.ac.uk/user/s10/s1049478/workspace/easyccg/lib/jewelcli-0.7.6.jar"/>
+            <zipfileset excludes="META-INF/*.SF" src="/afs/inf.ed.ac.uk/user/s10/s1049478/workspace/easyccg/lib/edu.mit.jwi_2.3.0.jar"/>
+        </jar>
+    </target>
+</project>
