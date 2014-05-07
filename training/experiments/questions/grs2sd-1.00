@@ -1,0 +1,831 @@
+#!/usr/bin/env python
+
+# Based on grs2depbank by James Curran
+#
+# Last updated 2 Sept 2008 LR
+
+import sys
+
+CONVERT = {'-LRB-': '(', '-RRB-': ')',
+           '-LCB-': '{', '-RCB-': '}',
+           '-LSB-': '[', '-RSB-': ']'}
+
+def punct_convert(s):
+    for (old, new) in CONVERT.iteritems():
+        s = s.replace(old, new)
+    return s
+
+def is_subset(list1,list2):
+    subset = True
+    for item in list1:
+        if item not in list2:
+            subset = False
+    return subset
+
+PUNCT = set("( ) { } [ ] -- : ; , . ? !".split())
+
+class Word:
+    def __init__(self, token, index):
+        self.index = index
+        fields = token.split('|')
+        self.token = fields[0]
+        self.pos = fields[1]
+        self.cat = fields[2]
+        self.grs = []
+        self.sub = None
+
+    def __cmp__(self, other):
+        return cmp(self.index, other.index)
+
+    def is_num(self):
+        return self.pos == 'CD'
+
+    def __repr__(self):
+        if self.sub:
+            return repr(self.sub)
+        else:
+            return '%s_%d' % (self.token, self.index)
+
+def convert_arg(arg, gr, words):
+    if '_' in arg and arg != '_':
+        word = words[arg]
+        word.grs.append(gr)
+        return word
+    else:
+        return arg
+
+def nopos(word):
+    if type(word) == type(''):
+        return word
+    else:
+        return word.token
+
+class GR:
+    def __init__(self, line, words):
+        self.line = line
+        fields = line[1:-1].split()
+        self.label = fields[0]
+        self.args = [convert_arg(arg, self, words) for arg in fields[1:]]
+        self.ignore = False
+    def __repr__(self):
+        return '(%s %s)' % (self.label, ' '.join(map(str, self.args)))
+
+    def nopos(self):
+        return '(%s %s)' % (self.label, ' '.join(map(nopos, self.args)))
+
+    def replace(self, old, new):
+        for i in xrange(len(self.args)):
+            if self.args[i] == old:
+                self.args[i] = new
+
+class Sentence:
+    def __init__(self, grs, line):
+        self.words = {}
+        self.sentence = []
+        for (i, token) in enumerate(line.split()):
+            word = Word(token, i)
+            self.sentence.append(word)
+            self.words[str(word)] = word
+
+        self.grs = [GR(gr, self.words) for gr in grs]
+        self.tokens = {}
+        self.pos = {}
+        self.cats = {}
+        for w in self.sentence:
+            self.tokens.setdefault(w.token, []).append(w)
+            self.pos.setdefault(w.pos, []).append(w)
+            self.cats.setdefault(w.cat, []).append(w)
+
+    # NB subroutines from grs2depbank that aren't (currently) being used
+    # are commented out
+    def postprocess(self):
+         if len(self.grs) == 0:
+            return    # some of these routines add GRs and we don't
+                      # want to do that if it was a parse failure
+         self.rcmod_fix()  # fixes a markedup bug
+         self.question_aux_fix()  # fixes a markedup bug
+         self.det_to_poss()
+         self.preconj()
+         self.ecm_to_nsubj()
+         self.add_funny_conj()
+         self.fix_aux_conj()
+         self.merge_conj_args()
+         self.conj_to_appos()
+#        self.remove_comma_conj()
+#        self.add_passives()
+#        self.ncmod_to_iobj()
+#        self.fix_ncmod_num()
+         self.num_and_number()
+#         self.fix_question_poss()  Don't need anymore, fixed in markedup
+         self.in_vivo_vitro()
+         self.switch_n_and_num()
+         self.less_than()
+         self.prep_to_appos()
+#         self.nn_and_amod()            # REMOVE FOR BIOINFER
+#        self.sfs_to_conj()
+#        self.fix_ampersands()
+#        self.remove_relpro_cmod()
+#        self.cmod_to_ta()
+#        self.ncmod_to_prt()
+#        self.xmod_add_to()
+#        self.fix_that_relpro()
+         self.add_rel()
+#        self.xmod_to_ta()
+#        self.pct_ncmod_to_dobj()
+         self.partmod_to_xcomp()
+         self.only_dep()
+         self.filter_punct()
+
+    def rcmod_fix(self):
+        """ fixes a bug in interpretation of markedup where
+            a particular argument isn't output.  Flagged with a special
+            "rcmodfix" dependency label in markedup.
+        """
+        grs = [gr for gr in self.grs if gr.label == 'rcmodfix']
+        for gr in grs:
+            for gr2 in self.grs:
+                if gr2.label == 'ref' and gr2.args[1] == gr.args[0]:
+                    gr.args[0] = gr2.args[0]
+                    gr.label = 'rcmod'
+
+    def add_passives(self):
+        for w in self.sentence:
+            if w.cat.lstrip('(').startswith('S[pss]\NP') or \
+                   (w.pos == 'VBN' and w.cat == 'N/N'):
+                self.grs.append(GR('(passive %s)' % w, self.words))
+
+    def det_to_poss(self):
+        """ converts det to poss when the token is a possessive
+        """
+        poss = ['its', 'our', 'his', 'her', 'my', 'their', 'your']
+        for gr in self.grs:
+            if gr.label == 'det' and gr.args[1].token in poss:
+                gr.label = 'poss'
+
+    def nn_and_amod(self):
+        """ converts nmod to nn when pos=NN* and to amod when pos is
+            anything else
+        """
+        for gr in self.grs:
+            if gr.label == 'nmod':
+                if gr.args[1].pos.startswith('NN'):
+                    gr.label = 'nn'
+                else:
+                    gr.label = 'amod'
+
+    def fix_question_poss(self):
+        """ fixes possessives in questions e.g. "what fruit's stone".
+            they come out of the parser with "what" as an argument
+            of the possessive rather than "fruit".
+            specifically, changes:
+            poss x y  where y has pos=WDT
+            to
+            poss x z
+            and
+            possessive y w
+            to
+            possessive z w
+            where in both cases z is the element such that there is
+            a relation (det z y)
+        """
+        for gr in self.grs:
+            if gr.label == 'poss':
+                if gr.args[1].pos == 'WDT':
+                    for gr2 in self.grs:
+                        if gr2.label == 'det' and gr2.args[1] == gr.args[1]:
+                            gr.args[1] = gr2.args[0]
+            if gr.label == 'possessive':
+                if gr.args[0].pos == 'WDT':
+                    for gr2 in self.grs:
+                        if gr2.label == 'det' and gr2.args[1] == gr.args[0]:
+                            gr.args[0] = gr2.args[0]
+
+    def question_aux_fix(self):
+        """ fixes a bug in interpretation of the markedup file,
+            in which an aux is being produced in some relations where the
+            main verb should actually be produced.
+            Flagged with a special "nsubjfix" dependency label in markedup.
+        """
+        grs = [gr for gr in self.grs if gr.label == 'nsubjfix']
+        for gr in grs:
+            for gr2 in self.grs:
+                if (gr2.label == 'aux' or gr2.label == 'cop') and gr2.args[1] == gr.args[0]:
+                    gr.args[0] = gr2.args[0]
+                    gr.label = 'nsubj'
+
+    def add_funny_conj(self):
+         for w in self.sentence:
+            if w.cat == 'conj' and w.grs == []:
+                prev = self.sentence[w.index - 1]
+                gr = GR('(conj %s %s)' % (w, prev), self.words)
+                self.grs.append(gr)
+#                w.grs.append(gr)
+                
+                next = self.sentence[w.index + 1]
+                gr = GR('(conj %s %s)' % (w, next), self.words)
+                self.grs.append(gr)
+#                w.grs.append(gr)
+
+    def merge_conj_args(self):
+        """ converts the rich parser output to more compact
+            representation required by sd
+        """
+        cc = {} # key = conjunction, value = list of its conjuncts
+        # Add where the conjunction is a comma first
+        for w in self.sentence:
+            if w.token == ',':
+                conj = [gr for gr in w.grs if gr.label == 'conj']
+                for gr in conj:
+                    cc.setdefault(str(w), []).append(gr.args[1])
+                    gr.ignore = True
+
+        # Remove subsets that happen with serial commas
+        # e.g. for "a, b, c, and d" the parser will output conjunctions
+        # consisting of c+d, b+c+d, a+b+c+d; we want to delete the
+        # subsets and keep the superset
+        for w,l in cc.iteritems():
+            for x,m in cc.iteritems():
+                if w != x and is_subset(l,m):
+                    cc[w].append('DELETE') # can't delete a dictionary entry while iterating through the dictionary - there should be cleaner ways to do this
+        for w in cc.keys():
+            if 'DELETE' in cc[w]:
+                del cc[w]
+
+        # Add other conjunctions (conjunction is not a comma)
+        # This is either the end of a list (x, y, and z / x, y and z),
+        # a plain binary conjunction, or something like "is consistent
+        # with, but does not prove".
+        # At the end of a list, the subset check ensures that the conjunction
+        # word gets used, but the original list is retained.
+        #
+        # Note that the parser already handles "x, y and z" by having the
+        # comma conjoin all three items, otherwise this routine would
+        # not work.
+        addtocc = {}
+        for w in self.sentence:
+             if w.cat == 'conj':
+                conj = [gr for gr in w.grs if gr.label == 'conj']
+                for gr in conj:
+                    gr.ignore = True
+                conjuncts = [gr.args[1] for gr in w.grs if gr.label == 'conj']
+                if conjuncts:
+                    subset = False
+                    for x,l in cc.iteritems():
+                        if is_subset(conjuncts,l):
+                            subset = True
+                            if 'DELETE' not in l: # if DELETE is there, the full list of conjuncts has already been added to addtocc with some conjunction word and we won't add another one (this usually happens when the parser has done something wrong with the coord anyway) (if we don't take this step, the list with DELETE in it gets into addtocc) (again there will be a cleaner way to do this)
+                                addtocc.setdefault(str(w), l[:])
+                                cc[x].append('DELETE')
+                    if not subset:
+                        addtocc.setdefault(str(w), conjuncts)
+        for w in cc.keys():
+            if 'DELETE' in cc[w]:
+                del cc[w]
+        for w,l in addtocc.iteritems():
+            cc.setdefault(w,l)
+
+        # Sort all the lists so we can get the new grs right
+        for w,l in cc.iteritems():
+            l.sort()
+
+        # Add the new grs
+        for w in cc.keys():
+            first_conjunct = cc[w][0]
+            for c in cc[w][1:]:
+                self.grs.append(GR('(conj %s %s)' % (first_conjunct, c), self.words))
+            # Add the cc
+            newgr = GR('(cc %s %s)' % (first_conjunct, w), self.words)
+            self.grs.append(newgr)
+
+        # Finally, normalize any other grs in which all members of a
+        # coordination participate - keep only the gr with the first conjunct
+        grs_left = {}
+        grs_right = {}
+        for gr in self.grs:
+            keyleft = str(gr.label)+" "+str(gr.args[0])
+            grs_left.setdefault(keyleft, []).append(gr.args[1])
+            keyright = str(gr.label)+" "+str(gr.args[1])
+            grs_right.setdefault(keyright, []).append(gr.args[0])
+        for k,l in grs_left.iteritems():
+            for w,c in cc.iteritems():
+                if k != w and is_subset(c,l):
+                    c.sort()
+                    labelparts = k.split()
+                    for item in c[1:]:
+                        testgr = GR('(%s %s %s)' % (labelparts[0], labelparts[1], item), self.words)
+                        for gr in self.grs:
+                            if gr.label == testgr.label and gr.args[0] == testgr.args[0] and gr.args[1] == testgr.args[1]:
+                                gr.ignore = True
+
+        for k,l in grs_right.iteritems():
+            equal = False
+            for w,c in cc.iteritems():
+                if k!= w and is_subset(c,l):
+                    c.sort
+                    labelparts = k.split()
+                    for item in c[1:]:
+                        testgr = GR('(%s %s %s)' % (labelparts[0], item, labelparts[1]), self.words)
+                        for gr in self.grs:
+                            if gr.label == testgr.label and gr.args[0] == testgr.args[0] and gr.args[1] == testgr.args[1]:
+                                gr.ignore = True
+
+
+    def conj_to_appos(self):
+        """ converts the pair of dependencies
+            conj x y
+            cc x ,
+            to the dependency:
+            appos x y
+
+            For example "x, a y, was found in ..."
+            Takes advantage of the fact that the parser considers this
+            a conjunction, and the merge_conj_args routine leaves it in this
+            state because it never finds a conjunction word.  Essentially
+            this type of appos is like a conjunction without a conj word,
+            so the comma is left hanging as a cc.
+
+            Also takes advantage of the fact that the previous routine
+            has already normalized GRs in which these things appear, so
+            only the first element appears, which
+            would have needed to be done for appositives anyway
+            
+            NB must be run AFTER merge_conj_args
+        """
+        for gr in self.grs:
+            if gr.label == 'cc' and gr.args[1].token == ',':
+                gr.ignore = True
+                for gr2 in self.grs:
+                    if gr2.label == 'conj' and gr2.args[0] == gr.args[0]:
+                        # could go wrong if there is something like "x, a y, and z" where there'd also be a (conj x z) relation that would get changed to appos.  would require some fairly complicated checking but could be done.
+                        gr2.label = 'appos'
+                
+    def remove_comma_conj(self):
+        for w in self.sentence:
+            if w.token == ',' and w.grs:
+                conj = [gr for gr in w.grs if gr.label == 'conj']
+                for gr in conj:
+                    gr.ignore = True
+                    
+                if len(conj) == 2:
+                    head, mod = sorted([conj[0].args[1], conj[1].args[1]])
+
+                    mod.sub = head
+                    head_grs = set([str(gr) for gr in head.grs])
+                    for gr in mod.grs:
+                        if str(gr) in head_grs:
+                            gr.ignore = True
+                    mod.sub = None
+
+#                    self.grs.append(GR('(ncmod _ %s %s)' % (head, mod), self.words))
+
+    def num_and_number(self):
+        """ converts nmod, amod, advmod, dep to dependency type num when the
+            modifier is a number, i.e. has pos=CD
+            or to dependency type number when both args are numbers
+        """
+        deptypes = ['nmod', 'advmod', 'amod', 'dep']
+        for gr in self.grs:
+            if gr.label in deptypes and gr.args[1].pos == 'CD':
+                if gr.args[0].pos == 'CD':
+                    gr.label = 'number'
+                    gr.args[0], gr.args[1] = gr.args[1], gr.args[0]
+                else:
+                    gr.label = 'num'
+
+    def in_vivo_vitro(self):
+        """ converts
+            pobj in vivo/vitro
+            to
+            dep in vivo/vitro
+            to match BioInfer.
+        """
+        words = ['vivo', 'vitro']
+        for gr in self.grs:
+            if gr.args[1].token in words and gr.args[0] != "_" and gr.args[0].token == 'in' and gr.label == 'pobj':
+                gr.label = 'dep'
+
+    def only_dep(self):
+        """ converts
+            advmod x only   where only cat = ((S\NP)\(S\NP))/((S\NP)\(S\NP))
+            to
+            dep x only
+            to match BioInfer
+        """
+        for gr in self.grs:
+            if gr.label == 'advmod' and gr.args[1].token.lower() == 'only' and gr.args[1].cat == '((S\NP)\(S\NP))/((S\NP)\(S\NP))':
+                gr.label = 'dep'
+
+    def prep_to_appos(self):
+        """ converts the pair of dependencies:
+            pobj -LRB- x
+            prep y -LRB-
+            to the dependency:
+            appox y x
+            because parentheses are done as appos in BioInfer/SD.
+            Should be possible to handle in markedup file, but
+            not working at the moment.
+            Also handles the case:
+            nsubj y -LRB-
+            rcmod x z
+            to the dep:
+            appos x y
+            which comes from the category (NP\NP)/(S[dcl]\NP) just in case
+            this is actually a parenthesis and not a relative pronoun.
+            Also should be possible to handle in markedup file.
+            This isn't perfect b/c if there are two rcmods it's indeterminate
+            which one it will get - need to do some checking on the index.
+        """
+        for gr in self.grs:
+            if gr.label == 'prep' and ('-LRB-' in str(gr.args[1]) or '(' in str(gr.args[1])) and not gr.ignore:
+                for gr2 in self.grs:
+                    if gr2.label == 'pobj' and gr.args[1] == gr2.args[0] and not gr2.ignore:
+                        gr.ignore = True
+                        self.grs.append(GR('(appos %s %s)' % (gr.args[0], gr2.args[1]), self.words))
+                        gr2.ignore = True
+                        # note there may be more than one of these if another subroutine has modified the list - some may be ignore - just let it loop through all of them and not worry about it
+
+
+
+        # The rcmod code isn't fully working
+        for gr in self.grs:
+            if gr.label == 'nsubj' and '-LRB-' in str(gr.args[1]):
+                for gr2 in self.grs:
+                    if gr2.label == 'rcmod':
+                        gr.ignore = True
+                        gr2.ignore = True
+                        newgr = GR('(appos %s %s)' % (gr2.args[1],gr.args[0]), self.words)
+                        self.grs.append(newgr)
+                        break
+
+    def switch_n_and_num(self):
+        """ in our corpus if there is something like "residues 260-281"
+            we may have residues|N/N 260-281|N, i.e. we may have the last
+            item in the NP as the head, even if it is a number.
+            however BioInfer has the number modifying the head
+            as a num dependency.  This switches those.
+            If it finds:
+            nmod y|CD x
+            then it changes that to:
+            num x y
+            and anything of the form:
+            reltype y z => reltype x z
+            reltype z y => reltype z x
+
+            NB needs to be run before prep_to_appos and nn_and_amond
+        """
+        nums = [w for w in self.sentence if w.pos == 'CD']
+        for w in nums:
+            prev = self.sentence[w.index - 1]
+            if prev.cat == 'N/N' and w.cat == 'N':
+                for gr in w.grs:
+                    if gr.label == 'nmod' and gr.args[0] == w and gr.args[1] == prev:
+                        # nmod y x => num x y
+                        gr.label = 'num'
+                        gr.args[0], gr.args[1] = gr.args[1], gr.args[0]
+                    elif gr.args[0] == w and gr.args[1] != prev:
+                        # reltype y z => reltype x z
+                        gr.ignore = True
+                        self.grs.append(GR('(%s %s %s)' % (gr.label, prev, gr.args[1]), self.words))
+                    elif gr.args[1] == w and gr.args[0] != prev:
+                        # reltype z y => reltype z x
+                        gr.ignore = True
+                        self.grs.append(GR('(%s %s %s)' % (gr.label, gr.args[0], prev), self.words))
+
+    def fix_aux_conj(self):
+        """ markedup_sd is set up so that aux+adj, aux+noun, aux+bare, aux+pass
+            i.e. (s[dcl]\NP)/(S[adj]\NP) and (S[dcl]\NP)/NP
+            and (S[dcl]\NP)/(S[b]\NP) and (S[dcl]\NP)/(S[pss]\NP) where the S[dcl]
+            is an auxiliary, will give the adj/noun/bare as a head.
+            However, in case those items are conjoined this doesn't work -
+            the conjunction will still come out with the aux.
+            This function fixes that.
+            It also switches the head for some other relation types where we know it should be switched. (Not sure whether this should be everything but cop and aux, but playing it safe, just doing the ones we saw in dev data.)
+            It relies on the raw parser output for conjunctions, so
+            it must be run BEFORE merge_conj_args().
+        """
+        aux = ['ai', 'am', 'are', 'be', 'been', 'being', 'is', 'was', 'were', "'s", "'m", "'re", 'has', 'have', 'had', "'ve", 'do', 'did', 'does', "'d", "'ll", 'ca', 'can', 'could', 'may', 'might', 'must', 'ought', 'shall', 'should', 'will', 'wo', 'would', 'get', 'got', 'gotten', 'getting']
+        auxcats = ['(S[dcl]\NP)/(S[adj]\NP)', '(S[dcl]\NP)/NP', '(S[dcl]\NP)/(S[b]\NP)', '(S[dcl]\NP)/(S[pss]\NP)']
+        reltypes = ['ccomp', 'complm', 'rel', 'rcmod', 'advmod', 'partmod']
+        for gr in self.grs:
+            # This is before we do merge_conj_args(), so the conjunction will be
+            # args[0] and the aux will be args[1]
+            if gr.label == 'conj' and gr.args[1].token in aux and gr.args[1].cat in auxcats:
+                # Find the word that we need to switch in for the aux -
+                # it will be the one which has this aux as its copula
+                word = None
+                for gr2 in self.grs:
+                    if (gr2.label == 'cop' or gr2.label == 'aux') and gr2.args[1] == gr.args[1]:
+                        word = gr2.args[0]
+                if word:
+                    # change the other relations besides conj first
+                    for gr3 in self.grs:
+                        # could be on either side of the relation
+                        if gr3.label in reltypes and gr3.args[0] == gr.args[1]:
+                            gr3.args[0] = word
+                        if gr3.label in reltypes and gr3.args[1] == gr.args[1]:
+                            gr3.args[1] = word
+                    # now change the original conj relation
+                    gr.args[1] = word
+
+    def partmod_to_xcomp(self):
+        """ in cases like:
+            suggested to act, data is presented to suggest, suggested to be involved,
+            suggested to be a common region, proposed to act, predicted to encode, ...
+            which always has the category sequence S[pss]\NP (S[to]\NP)/(S[b]\NP)
+            the parser uses a unary rule and produces
+            partmod x y
+            This needs to be changed to
+            xcomp x z
+            where z is the complement of "to", which can be found because there
+            is a relation (aux z to).
+        """
+        for gr in self.grs:
+            if gr.label == 'partmod' and gr.args[0].cat == 'S[pss]\NP' and gr.args[1].cat == '(S[to]\NP)/(S[b]\NP)':
+                # Find the replacement word.
+                # It will be the one which has this "to" as its aux.
+                word = None
+                for gr2 in self.grs:
+                    if gr2.label == 'aux' and gr2.args[1] == gr.args[1]:
+                        word = gr2.args[0]
+                if word:
+                    gr.label = 'xcomp'
+                    gr.args[1] = word
+
+    def ecm_to_nsubj(self):
+        """ for ECM (and control) constructions like this:
+            these|DT|NP[nb]/N reactions|NNS|N may|MD|(S[dcl]\NP)/(S[b]\NP)
+            allow|VB|((S[b]\NP)/(S[to]\NP))/NP profilin|NN|N
+            to|TO|(S[to]\NP)/(S[b]\NP) have|VB|(S[b]\NP)/NP
+            These come out with (xsubj have profilin) and it should
+            be nsubj.
+            We deliberately left (dobj allow profilin) in the markedup
+            file, even though Stanford doesn't want that, to have a
+            hook to fix this construction with.
+            So, this subroutine changes the pair:
+            (dobj x y)  where cat x ends in /NP
+            (xsubj z y)
+            to
+            (nsubj z y)
+        """
+        verbs = [w for w in self.sentence if w.cat.endswith('/NP')]
+        for v in verbs:
+            grs = [gr for gr in v.grs if gr.args[0] == v and gr.label == 'dobj']
+            for gr in grs:
+                for gr2 in self.grs:
+                    if gr2.label == 'xsubj' and gr2.args[1] == gr.args[1]:
+                        gr.ignore = True
+                        gr2.label = 'nsubj'
+
+    def preconj(self):
+        """ converts
+            advmod x both  /  advmod x either
+            to
+            preconj x both  /  preconj x either
+        """
+        preconjwords = ['both', 'either']
+        for gr in self.grs:
+            if gr.label == 'advmod' and gr.args[1].token.lower() in preconjwords:
+                gr.label = 'preconj'
+                    
+    def less_than(self):
+        """ handles the less than construction in BioInfer.
+            specifically if the sentence contains
+            x &lt; n   (where n has pos = CD)
+            then it changes the pair of dependencies:
+              num &lt; n
+              nmod &lt; x
+            to the pair:
+              num x n
+              dep x &lt;
+            to match BioInfer.  Then, since BioInfer considers the head
+            of this construction to be x, and our script has made it &lt;,
+            it changes &lt; in any other relation to x.
+
+            NB must be run after switch_n_and_num()
+        """
+
+        lts = [w for w in self.sentence if w.token == '&lt;' and w.cat == 'N/N']
+        for w in lts:
+            prev = self.sentence[w.index - 1]
+            next = self.sentence[w.index + 1]
+            if prev.cat == 'N/N' and next.pos == 'CD' and next.cat == 'N':
+                for gr in w.grs:
+                    if gr.label == 'num' and gr.args[0] == w and gr.args[1] == next:
+                        gr.args[0] = prev
+                    elif gr.label == 'nmod' and gr.args[0] == w and gr.args[1] == prev:
+                        gr.label = 'dep'
+                        gr.args[0], gr.args[1] = gr.args[1], gr.args[0]
+                    elif gr.args[0] == w and gr.args[1] != prev:
+                        # reltype &lt; z => reltype x z
+                        gr.ignore = True
+                        self.grs.append(GR('(%s %s %s)' % (gr.label, prev, gr.args[1]), self.words))
+                    elif gr.args[1] == w and gr.args[0] != prev:
+                        # reltype z &lt; => reltype z x
+                        gr.ignore = True
+                        self.grs.append(GR('(%s %s %s)' % (gr.label, gr.args[0], prev), self.words))
+
+
+
+    def fix_ncmod_num(self):
+        for w in self.cats.get('N[num]', []):
+            for gr in w.grs:
+                if gr.label != 'ncmod':
+                    continue
+                if gr.args[1] == w:
+                    gr.args[0] = 'num'
+                    gr.args[1], gr.args[2] = gr.args[2], gr.args[1]
+                elif gr.args[2] == w:
+                    gr.args[0] = 'num'
+                    gr.args[2] = self.sentence[gr.args[1].index + 1]
+        for gr in self.grs:
+            if gr.label == 'ncmod' and \
+                   (gr.args[1].is_num() or gr.args[2].is_num()):
+                gr.args[0] = 'num'
+
+    PART = set("several some most all any more less many".split())
+    def ncmod_to_iobj(self):
+        for gr in self.grs:
+            if gr.label == 'ncmod' and gr.args[2].token == 'of':
+                if gr.args[1].token.lower() not in self.PART:
+                    gr.args.pop(0)
+                    gr.label = 'iobj'
+
+    def sfs_to_conj(self):
+        for gr in self.grs:
+            if gr.label == 'ncmod' and gr.args[2].pos == 'CC' and gr.args[2].cat == 'S/S':
+                self.grs.append(GR('(conj %s %s)' % (gr.args[2], gr.args[1]), self.words))
+                gr.ignore = True
+
+    def pct_ncmod_to_dobj(self):
+        for gr in self.grs:
+            if gr.label == 'ncmod' and gr.args[0] == '_' and gr.args[2].token == '%':
+                gr.args.pop(0)
+                gr.label = 'dobj'
+
+    def xmod_to_ta(self):
+        for gr in self.grs:
+            if gr.label == 'xmod':
+                start, end = sorted([gr.args[1].index, gr.args[2].index])
+                for i in xrange(start + 1, end):
+                    if self.sentence[i].token == ',':
+                        gr.label = 'ta'
+                        for i in xrange(end + 1, len(self.sentence)):
+                            if self.sentence[i].token == ',':
+                                gr.args[0] = 'bal'
+                                break
+                        else:
+                            gr.args[0] = 'end'
+                        break
+
+    def xmod_add_to(self):
+        for gr in self.grs:
+            if gr.label == 'xmod':
+                start, end = sorted([gr.args[1].index, gr.args[2].index])
+                for i in xrange(start + 1, end):
+                    if self.sentence[i].token == 'to':
+                        gr.args[0] = 'to'
+                        break
+
+    SAY = set("say said says".split())
+    def cmod_to_ta(self):
+        for gr in self.grs:
+            if gr.label == 'cmod':
+                if gr.args[2].token.lower() in self.SAY:
+                    gr.label = 'ta'
+                    gr.args[0] = 'quote'
+                    gr.args[1], gr.args[2] = gr.args[2], gr.args[1]
+                elif gr.args[1].token.lower() in self.SAY:
+                    gr.label = 'ta'
+                    gr.args[0] = 'quote'
+
+    def ncmod_to_prt(self):
+        for gr in self.grs:
+            if gr.label == 'ncmod':
+                if gr.args[1].pos.startswith('V') and gr.args[2].pos == 'RP':
+                    gr.args[0] = 'prt'
+
+    def filter_punct(self):
+        for gr in self.grs:
+            for arg in gr.args:
+                if isinstance(arg, Word) and arg.token in PUNCT:
+                    gr.ignore = True
+                    break
+
+    def fix_ampersands(self):
+        for w in self.sentence:
+            if w.token == '&' and w.cat == 'N/N':
+                prev = self.sentence[w.index - 1]
+                next = self.sentence[w.index + 1]
+                for gr in w.grs:
+                    gr.ignore = True
+                for gr in next.grs:
+                    if prev in gr.args:
+                        gr.ignore = True
+                    else:
+                        gr.replace(next, w)
+                self.grs.append(GR('(conj %s %s)' % (w, prev), self.words))
+                self.grs.append(GR('(conj %s %s)' % (w, next), self.words))
+
+    def remove_relpro_cmod(self):
+        for gr in self.grs:
+            if gr.label == 'cmod' and gr.args[0] != '_' and gr.args[0].token != 'that':
+                gr.args[0] = '_'
+
+    def fix_that_relpro(self):
+        for gr in self.grs:
+            if gr.label == "cmod" and gr.args[0] != '_' and gr.args[0].token == 'that':
+                that = gr.args[0]
+                for gr2 in that.grs:
+                    if gr2.label == "ncsubj" and gr2.args[1] == that:
+                        gr2.args[1] = gr.args[1]                    
+
+    def add_rel(self):
+        """ in case of these two deps:
+            rcmod x y
+            nsubj(pass) y that/which
+            adds an ADDITIONAL dep:
+            rel y that/which
+            In other words, adds a dependency to mark the relative
+            pronoun as being rel.  Note that in BioInfer there are
+            BOTH the nsubj and the rel dependencies.  Haven't checked
+            whether this is the case for Stanford parser in general.
+            also adds a second ADDITIONAL dep:
+            ref x that/which
+            this can't be done in the markedup file because would be
+            one-to-many for (NP\NP)/(S[dcl]\NP)
+        """
+        for gr in self.grs:
+            if gr.label == 'rcmod':
+                verb = gr.args[1]
+                for gr2 in verb.grs:
+                    if (gr2.label == 'nsubj' or gr2.label == 'nsubjpass') and gr2.args[0] == verb and (gr2.args[1].token == 'that' or gr2.args[1].token == 'which'):
+                        self.grs.append(GR('(rel %s %s)' % (gr2.args[0], gr2.args[1]), self.words))
+                        self.grs.append(GR('(ref %s %s)' % (gr.args[0], gr2.args[1]), self.words))
+
+def read(filename, OUTPUT):
+    grs = []
+    for line in open(filename):
+        line = line.strip()
+        if not line or line.startswith('#'):
+            if OUTPUT == '--ccgbank':
+                print line
+            continue
+#        line = punct_convert(line)
+        if line.startswith('('):
+            grs.append(line)
+        elif line.startswith('<c> '):
+            yield Sentence(grs, line[4:])
+            grs = []
+
+OUTPUT = sys.argv[1]
+if sys.argv[2].startswith('--'):
+    if sys.argv[2] != '--no-postprocess':
+        print >> sys.stderr, "unrecognised command line argument %s" % sys.argv[2]
+        sys.exit(1)
+
+    POSTPROCESS = False
+    FILENAME = sys.argv[3]
+else:
+    POSTPROCESS = True
+    FILENAME = sys.argv[2]
+
+if OUTPUT == "--ccgbank":
+    print "# generated by grs2sd"
+elif OUTPUT == '--rasp-parse':
+    print "%LB ("
+    print "%RB )"
+
+for i, s in enumerate(read(FILENAME, OUTPUT)):
+    if POSTPROCESS:
+        s.postprocess()
+    
+    if OUTPUT == '--ccgbank':
+        for gr in s.grs:
+            if not gr.ignore:
+                print gr
+                
+        print '<c>',
+        for w in s.sentence:
+            print '%s|%s|%s' % (w.token, w.pos, w.cat),
+        print
+    elif OUTPUT == '--rasp-text':
+        print
+        print i + 1
+        for w in s.sentence:
+            print w.token,
+        print
+    elif OUTPUT == '--rasp-parse':
+        print
+        print i + 1
+        print
+        for gr in s.grs:
+            if not gr.ignore:
+                print gr.nopos()
+    elif OUTPUT == '--text':
+        for w in s.sentence:
+            print w.token,
+        print
+    elif OUTPUT == '--pos':
+        for w in s.sentence:
+            print '%s|%s' % (w.token, w.pos),
+        print

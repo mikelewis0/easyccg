@@ -1,0 +1,20 @@
+#!/bin/bash
+
+if [ ! $# == 2 ]; then
+  (
+    echo "get_deps_from_auto: incorrect number of command line arguments"
+    echo "usage: create_data <CCGbank-Style-Auto-File> <output>"
+  ) > /dev/stderr;
+    exit 1;
+fi
+
+SCRIPTS=$CANDC/src/scripts/ccg
+DATA=$CANDC/src/data/ccg
+
+MARKEDUP=$DATA/cats/markedup
+
+$SCRIPTS/convert_auto $1 | sed -f $SCRIPTS/convert_brackets > tmp.pipe
+
+echo 'bin/generate -j produces CCGbank slot dependencies,'
+
+$CANDC/bin/generate -j $DATA/cats $MARKEDUP tmp.pipe > $2

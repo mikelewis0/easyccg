@@ -1,0 +1,19 @@
+#!/bin/bash
+
+if [ ! $# == 3 ]; then
+  (
+    echo "get_deps_from_auto: incorrect number of command line arguments"
+    echo "usage: create_data <CCGbank-Style-Auto-File> <markedup file> <output>"
+  ) > /dev/stderr;
+    exit 1;
+fi
+
+SCRIPTS=$CANDC/src/scripts/ccg
+DATA=$CANDC/src/data/ccg
+
+MARKEDUP=$2
+
+$SCRIPTS/convert_auto $1 | sed -f $SCRIPTS/convert_brackets > tmp.pipe
+
+
+$CANDC/bin/generate -g $DATA/cats $MARKEDUP tmp.pipe > $3

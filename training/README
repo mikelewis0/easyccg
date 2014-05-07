@@ -1,0 +1,53 @@
+This file gives instructions for training and evaluating the EasyCCG parser.
+
+SETUP
+=====
+Install Torch and Lua:
+- Use the instructions here: http://torch.ch/
+- Set up an enviornment variable pointing at the torch-lua executable: export TORCH=path/to/torch-lua
+
+Set up some pre-trained word embeddings:
+- Download some embeddings, e.g. Turian's: http://metaoptimize.s3.amazonaws.com/cw-embeddings-ACL2010/embeddings-scaled.EMBEDDING_SIZE=50.txt.gz
+- Create a subfolder (e.g. 'turian'), and put the embeddings in the folder with the name embeddings.raw
+- The training program expects that the first entry in the file should correspond to a rare-word embedding - check that this is the case.
+- Pre-process the embeddings, with the command: ./splitEmbeddings.sh embeddings_folder
+
+To get a dependency-based evaluation, you'll need some scripts from the C&C parser:
+- Download the C&C parser
+- Set up an environment variable pointing at the C&C folder: export CANDC=path/to/candc/
+- Copy across some extra scripts, using: cp eval_scripts/* $CANDC/src/scripts/ccg/
+
+If you're using non-CCGBank training data:
+- Make folders containing supertagged sentences in the format word|pos|category, in a file 
+  called gold.stagged. POS will be ignored by the code, so can be empty.
+- By default, the parser uses a 'seenRules' file, which tell it which category combinations 
+  have occured in CCGBank. This needs to be in the training data folder. Normally, you 
+  can just copy this from experiments/wsj_train/seenRules.
+- If you've added new categories, the seenRules file needs to be updated, or 
+  you can let the parser use any valid CCG combinations (using the "-s" flag). You may also 
+  want to update the unaryRules file.
+
+
+TRAINING AND EVALUATING
+=======================
+Training should then be straightforward, with a command like the following:
+  ./do_training.sh my_model turian experiments/wsj_train/ experiments/wsj00/
+
+This creates a model in the folder "turian/my_model", using embeddings from the "turian" folder, 
+training data from "experiments/wsj_train/gold.stagged" and development data from
+"experiments/wsj_dev/gold.stagged". All being well, it will output a labelled dependency
+score on the development data.
+
+To evaluate on test data, use something like:
+  ./do_experiments.sh turian/my_model experiments/wsj23/ my_model
+
+To evaluate on Wikipedia data, use something like (please cite the relevant Honnibal et al. paper):
+  ./do_experiments.sh turian/my_model experiments/wiki/ my_model
+
+To evaluate on Biomedical text (please cite the relevant Rimell&Clark paper):
+  ./do_experiments_genia.sh model_folder experiments/genia/ my_model
+
+
+
+
+
