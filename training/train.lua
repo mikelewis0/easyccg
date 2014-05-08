@@ -26,8 +26,8 @@ function Train:loadDataset(path, features, windowBackward, windowForward, includ
   local index = 0
   local window = windowBackward + windowForward + 1
 
-  local inputData = {}
-  local targetData = torch.IntStorage(size)--{}
+  local inputData = torch.Tensor(size, window * 3)
+  local targetData = torch.IntStorage(size)
 
   local lineNum = 1;
    for line in file:lines() do 
@@ -56,14 +56,18 @@ function Train:loadDataset(path, features, windowBackward, windowForward, includ
      for i = 1,numWords do
         
         local input = features:getFeatures(words, i, windowBackward, windowForward);
-        local newInput = nn.SplitTable(1):forward(nn.Reshape(3,window):forward(input))
+        --local newInput = nn.SplitTable(1):forward(nn.Reshape(3,window):forward(input))
         local label = features:getCategoryIndex(cats[i])
 
         if label > 0 or (includeRareCategories) then
           --Label 0 is rare categories. These are used for evaluation, but not for training.
           index = index + 1
 
-          inputData[index] = newInput
+          for j=1,input:size()[1] do 
+            value = input[j]
+            inputData[index][j] = value
+          end
+
           targetData[index] = label
         end      
      end

@@ -10,18 +10,17 @@ function SGD:__init(module, criterion, folder)
    self.folder = folder
    self.log=io.open(folder .. '/log',"w")
    self.log:setvbuf("no") 
+
+
 end
 
 
 function SGD:eval(validation)
        right = 0.0
        for t = 1,validation:size() do
-         --local example = validation[t]
-         --local input = example[1]
-         --local target = example[2]
          local input = validation[1][t]
          local target = validation[2][t]
-
+         input = nn.SplitTable(1):forward(nn.Reshape(3,window):forward(input))
          output = self.module:forward(input)
 
          outputLabel = 1;
@@ -71,26 +70,21 @@ function SGD:train(dataset, validation)
       end
    end
 
-   self.log:write("shuffled indices" .. '\n')
-
-
    bestScore = -1;
    it = 0;
    local itsSinceImprovement = 0;
    while true do
-      self.log:write(it .. " ")
       it = it + 1
+      self.log:write("Iteration " .. it .. " ")
 
       
       local currentError = 0
       for t = 1,dataset:size() do
---         local example = dataset[shuffledIndices[t]]
---         local input = example[1]
---         local target = example[2]
 
          local input = dataset[1][shuffledIndices[t]]
          local target = dataset[2][shuffledIndices[t]]
 
+         input = nn.SplitTable(1):forward(nn.Reshape(3,window):forward(input))
          currentError = currentError + criterion:forward(module:forward(input), target)
 
          module:updateGradInput(input, criterion:updateGradInput(module.output, target))
@@ -110,7 +104,7 @@ function SGD:train(dataset, validation)
 
       acc=self:eval(validation)
 
-      self.log:write("Validation Accuracy: " .. acc .. '\n')
+      self.log:write("Development Set Accuracy: " .. acc .. '\n')
 
 
       if acc > bestScore then
@@ -128,8 +122,8 @@ function SGD:train(dataset, validation)
          break
       end
 
-     if itsSinceImprovement == 3 then
-         self.log:write("# SGD: no improvement for 3 iterations" .. '\n')
+     if itsSinceImprovement == 1 then
+         self.log:write("# SGD: no improvement for 1 iteration. Stopping training." .. '\n')
          break
      end
    end

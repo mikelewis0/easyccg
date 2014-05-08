@@ -23,6 +23,8 @@ end
 function Features:fileToTable(path, minIndex, normalize)
    local file = io.open(path)
 
+   if not file then error("Unable to load file: " .. file) end
+
    local result = {}
    local reverse = {}
    local count = minIndex
