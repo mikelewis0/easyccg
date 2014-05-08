@@ -44,12 +44,12 @@ function Train:loadDataset(path, features, windowBackward, windowForward, includ
        if (delim1) then
          local delim2 = string.find(instance, '|', delim1 + 1, true)
          cats[numWords] = string.sub(instance, delim2 + 1, string.len(instance))
+         words[numWords] = string.sub(instance, 1, delim1 - 1)
        else
          -- No training example provided
          cats[numWords] = "*NO_CATEGORY*"
+         words[numWords] = string
        end
-        
-       words[numWords] = string.sub(instance, 1, delim1 - 1)
      end
 
      
