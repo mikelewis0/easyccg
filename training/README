@@ -17,12 +17,19 @@ To get a dependency-based evaluation, you'll need some scripts from the C&C pars
 - Set up an environment variable pointing at the C&C folder: export CANDC=path/to/candc/
 - Copy across some extra scripts, using: cp eval_scripts/* $CANDC/src/scripts/ccg/
 
-If you're using non-CCGBank training data:
+Set up some training data:
 - Make folders containing supertagged sentences in the format word|pos|category, in a file 
   called gold.stagged. POS will be ignored by the code, so can be empty.
+- For evaluating the parser, you'll also need a gold.deps file containing test dependencies.  
+- CCGBank test/training data in the correct format can be extracted from CCGBank using the 
+  C&C parser's 'generate' program. Helpful notes on compiling/training the C&C are available 
+  here: http://aclweb.org/aclwiki/index.php?title=Training_the_C%26C_Parser
+- Steve Clark has released some very useful out-of-domain data for training/testing: 
+  https://sites.google.com/site/stephenclark609/resources
+- Matt Honnibal also has an excellent annotated Wikipedia corpus.
 - By default, the parser uses a 'seenRules' file, which tell it which category combinations 
   have occured in CCGBank. This needs to be in the training data folder. Normally, you 
-  can just copy this from experiments/wsj_train/seenRules.
+  can just copy this from this folder.
 - If you've added new categories, the seenRules file needs to be updated, or 
   you can let the parser use any valid CCG combinations (using the "-s" flag). You may also 
   want to update the unaryRules file.
@@ -41,11 +48,11 @@ score on the development data.
 To evaluate on test data, use something like:
   ./do_experiments.sh turian/my_model experiments/wsj23/ my_model
 
-To evaluate on Wikipedia data, use something like (please cite the relevant Honnibal et al. paper):
-  ./do_experiments.sh turian/my_model experiments/wiki/ my_model
-
-To evaluate on Biomedical text (please cite the relevant Rimell&Clark paper):
-  ./do_experiments_genia.sh model_folder experiments/genia/ my_model
+Evaluating on Biomedical text is a bit more work, because we need to convert to Stanford dependencies:
+- Put the grs2sd-1.00 and markedup_sd-1.00 files in the same folder as gold.stagged
+- You'll also need to put the gold-standard dependencies in that folder, in the file gold.deps
+- Copy the script eval_test.py to that folder
+- Use this script: ./do_experiments_genia.sh model_folder experiments/genia/ my_model
 
 
 
