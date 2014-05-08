@@ -48,7 +48,7 @@ function Train:loadDataset(path, features, windowBackward, windowForward, includ
        else
          -- No training example provided
          cats[numWords] = "*NO_CATEGORY*"
-         words[numWords] = string
+         words[numWords] = instance
        end
      end
 
