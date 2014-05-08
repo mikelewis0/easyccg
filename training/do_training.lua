@@ -14,7 +14,7 @@ windowBackward=tonumber(arg[5]);
 windowForward=tonumber(arg[6]);
 name=arg[7]
 
-modelFolder=embeddingsFolder .. '/' .. name
+modelFolder=embeddingsFolder .. '/train.' .. name
 
 features = nn.Features(embeddingsFolder .. '/embeddings.words', modelFolder .. '/suffixes', modelFolder .. '/categories')
 

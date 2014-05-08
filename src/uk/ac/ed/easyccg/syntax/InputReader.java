@@ -8,7 +8,7 @@ import java.util.InputMismatchException;
 import java.util.Iterator;
 import java.util.List;
 
-import main.EasyCCG.InputFormat;
+import uk.ac.ed.easyccg.main.EasyCCG.InputFormat;
 import uk.ac.ed.easyccg.syntax.SyntaxTreeNode.SyntaxTreeNodeFactory;
 
 public abstract class InputReader

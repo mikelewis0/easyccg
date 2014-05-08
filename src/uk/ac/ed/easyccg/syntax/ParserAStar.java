@@ -11,7 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.PriorityQueue;
 
-import main.EasyCCG.InputFormat;
+import uk.ac.ed.easyccg.main.EasyCCG.InputFormat;
 import uk.ac.ed.easyccg.syntax.Combinator.RuleProduction;
 import uk.ac.ed.easyccg.syntax.Combinator.RuleType;
 import uk.ac.ed.easyccg.syntax.InputReader.InputToParser;
