@@ -4,10 +4,12 @@ import java.io.File;
 import java.io.FilenameFilter;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 
 import no.uib.cipr.matrix.DenseMatrix;
 import no.uib.cipr.matrix.DenseVector;
@@ -16,6 +18,8 @@ import no.uib.cipr.matrix.Vector;
 import uk.ac.ed.easyccg.syntax.InputReader.InputWord;
 import uk.ac.ed.easyccg.syntax.SyntaxTreeNode.SyntaxTreeNodeFactory;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.MinMaxPriorityQueue;
 import com.google.common.io.PatternFilenameFilter;
 import com.google.common.primitives.Doubles;
@@ -49,37 +53,78 @@ public class TaggerEmbeddings implements Tagger
   private final static String suffixPad="*suffix_pad*";
   private final static String unknownSuffix="*unknown_suffix*";
 
+  private final List<Vector> weightMatrixRows;
+
   /**
    * Number of supertags to consider for each word. Choosing 50 means it's effectively unpruned,
    * but saves us having to sort the complete list of categories.
    */
   private final static int beam = 50;
+  
+  private final double beta;
+
+  
   private final SyntaxTreeNodeFactory terminalFactory;
+  private final Map<String, Collection<Integer>> tagDict;
 
 
-  public TaggerEmbeddings(File file, int maxSentenceLength) {
+  public TaggerEmbeddings(File modelFolder, int maxSentenceLength, double beta) {
     try {
       FilenameFilter embeddingsFileFilter = new PatternFilenameFilter("embeddings.*");
 
-      embeddingsFeatures = loadEmbeddings(true, file.listFiles(embeddingsFileFilter));
+      embeddingsFeatures = loadEmbeddings(true, modelFolder.listFiles(embeddingsFileFilter));
       discreteFeatures = new HashMap<String, double[]>();
-      discreteFeatures.putAll(loadEmbeddings(false, new File(file, "capitals")));
-      discreteFeatures.putAll(loadEmbeddings(false, new File(file, "suffix")));
+      discreteFeatures.putAll(loadEmbeddings(false, new File(modelFolder, "capitals")));
+      discreteFeatures.putAll(loadEmbeddings(false, new File(modelFolder, "suffix")));
       totalFeatures = 
         (embeddingsFeatures.get(unknownLower).length + 
             discreteFeatures.get(unknownSuffix).length + 
             discreteFeatures.get(capsLower).length)*(2 * contextWindow + 1);
-      lexicalCategories = loadCategories(new File(file, "categories"));
+      lexicalCategories = loadCategories(new File(modelFolder, "categories"));
       weightMatrix = new DenseMatrix(lexicalCategories.size(), totalFeatures);
-      loadMatrix(weightMatrix, new File(file, "classifier"));
+      loadMatrix(weightMatrix, new File(modelFolder, "classifier"));
+
+      weightMatrixRows = new ArrayList<Vector>(lexicalCategories.size());
+      for (int i=0; i<lexicalCategories.size(); i++) {
+        Vector row = new DenseVector(totalFeatures);
+        for (int j=0; j<totalFeatures; j++) {
+          row.set(j, weightMatrix.get(i, j));
+        }
+        weightMatrixRows.add(row);
+      }
+
       bias = new DenseVector(lexicalCategories.size());
-      
+      this.beta = beta;
+
+      Map<Category, Integer> catToIndex = new HashMap<Category, Integer>();
+
       int maxCategoryID = 0;
+      int index = 0;
       for (Category c : lexicalCategories) {
         maxCategoryID = Math.max(maxCategoryID, c.getID());
+        catToIndex.put(c, index);
+        index++;
       }
+      
+      Map<String, Collection<Category>> dict = TagDict.readDict(modelFolder);
+      Map<String, Collection<Integer>> tagDict = new HashMap<String, Collection<Integer>>();
+      if (dict == null) {
+        dict = new HashMap<String, Collection<Category>>();
+        dict.put(TagDict.OTHER_WORDS, lexicalCategories);
+      }
+      for (Entry<String, Collection<Category>> entry : dict.entrySet()) {
+        List<Integer> catIndices = new ArrayList<Integer>(entry.getValue().size());
+        for (Category cat : entry.getValue()) {
+          catIndices.add(catToIndex.get(cat));
+        }
+        tagDict.put(entry.getKey(), ImmutableList.copyOf(catIndices));
+      }
+      this.tagDict = ImmutableMap.copyOf(tagDict);
+
+      
       terminalFactory = new SyntaxTreeNodeFactory(maxSentenceLength, maxCategoryID);
-      loadVector(bias, new File(file, "bias"));
+      loadVector(bias, new File(modelFolder, "bias"));
+
     }
     catch (Exception e) {
       throw new Error(e);
@@ -304,25 +349,39 @@ public class TaggerEmbeddings implements Tagger
    */
   private List<SyntaxTreeNode> getTagsForWord(final Vector vector, final InputWord word, final int wordIndex)
   {
-    // Fixed length priority queue, used to sort candidate tags.
-    MinMaxPriorityQueue<ScoredCategory> queue = MinMaxPriorityQueue.expectedSize(beam).maximumSize(beam).create();
-
     double total = 0.0;
 
-    Vector tmpVector = bias.copy();
-    weightMatrix.multAdd(vector, tmpVector);
-    for (int i=0; i < weightMatrix.numRows(); i++) {
-      double score = Math.exp(tmpVector.get(i));
-      
-      if (i < beam || score > queue.peekLast().score) {
-        // Surprisingly, this 'if' condition makes things faster.
-        queue.add(new ScoredCategory(i, score));
+    Collection<Integer> cats = tagDict.get(word.word);
+    if (cats == null) {
+      cats = tagDict.get(TagDict.OTHER_WORDS);
+    }
+    
+    double threshold = 0.0;
+
+    final int size = Math.min(beam, cats.size());
+    // Fixed length priority queue, used to sort candidate tags.
+    MinMaxPriorityQueue<ScoredCategory> queue = MinMaxPriorityQueue.maximumSize(size).create();
+
+    double bestScore = 0.0;
+
+    for (Integer cat : cats) {
+      double score = Math.exp(weightMatrixRows.get(cat).dot(vector) + bias.get(cat));
+      if (score >= threshold) {
+        queue.add(new ScoredCategory(cat, score));
+        
+        if (score > bestScore) {
+          bestScore = score;
+          threshold = beta * bestScore;
+          while (queue.peekLast().score < threshold) {
+            queue.pollLast();
+          }
+        }
       }
       total += score;
     }
-
+    
     // Convert the queue into a sorted list of SyntaxTreeNode terminals.
-    List<SyntaxTreeNode> result = new ArrayList<SyntaxTreeNode>(beam);
+    List<SyntaxTreeNode> result = new ArrayList<SyntaxTreeNode>(queue.size());
     while (queue.size() > 0) {
       ScoredCategory cat = queue.poll();
       double probability = cat.score / total;

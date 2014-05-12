@@ -1,12 +1,12 @@
 package uk.ac.ed.easyccg.syntax;
 
+import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 
 import uk.ac.ed.easyccg.syntax.Category.Slash;
-
-import com.google.common.collect.ImmutableList;
 
 public abstract class Combinator
 {
@@ -33,7 +33,7 @@ public abstract class Combinator
 
   public abstract boolean headIsLeft(Category left, Category right);
 
-  public final static Collection<Combinator> combinators = ImmutableList.copyOf(Arrays.asList(
+  public final static Collection<Combinator> STANDARD_COMBINATORS = new ArrayList<Combinator>(Arrays.asList(
       new ForwardApplication(), 
       new BackwardApplication(), 
       new ForwardComposition(Slash.FWD, Slash.FWD, Slash.FWD),
@@ -41,9 +41,33 @@ public abstract class Combinator
       new GeneralizedForwardComposition(Slash.FWD, Slash.FWD, Slash.FWD),
       new GeneralizedBackwardComposition(Slash.FWD, Slash.BWD, Slash.FWD),
       new Conjunction(), 
-      new RemovePunctuation(false)
+      new RemovePunctuation(false),
+      new RemovePunctuationLeft()
       ));
   
+  public static Collection<Combinator> loadSpecialCombinators(File file) throws IOException {
+    Collection<Combinator> newCombinators = new ArrayList<Combinator>();
+    for (String line : Util.readFile(file)) {
+      // l , S[to]\NP NP\NP
+      if (line.indexOf("#") > -1) {
+        line = line.substring(0, line.indexOf("#"));
+      }
+
+      line = line.trim();
+      if (line.isEmpty()) {
+        continue ;
+      }
+      
+      String[] fields = line.split(" ");
+      boolean headIsLeft = fields[0].equals("l");
+      Category left = Category.valueOf(fields[1]);
+      Category right = Category.valueOf(fields[2]);
+      Category result = Category.valueOf(fields[3]);
+      newCombinators.add(new SpecialCombinator(left, right, result, headIsLeft));
+    }
+    return newCombinators;
+  }
+
    
   private final RuleType ruleType;
   public abstract boolean canApply(Category left, Category right);
@@ -62,9 +86,9 @@ public abstract class Combinator
   /**
    * Returns a set of rules that can be applied to a pair of categories.
    */
-  static Collection<RuleProduction> getRules(Category left, Category right) {
+  static Collection<RuleProduction> getRules(Category left, Category right, Collection<Combinator> rules) {
     Collection<RuleProduction> result = new ArrayList<RuleProduction>(2);
-    for (Combinator c : combinators) {
+    for (Combinator c : rules) {
       if (c.canApply(left, right)) {
         result.add(new RuleProduction(c.ruleType, c.apply(left, right), c.headIsLeft(left, right)));
       }
@@ -139,8 +163,69 @@ public abstract class Combinator
       return !punctuationIsLeft;
     }
   }
-
   
+  /**
+   * Open Brackets and Quotations
+   */
+  private static class RemovePunctuationLeft extends Combinator {
+    private RemovePunctuationLeft()
+    {
+      super(RuleType.RP);
+    }
+    
+    @Override
+    public boolean canApply(Category left, Category right)
+    {
+      return left == Category.LQU || left == Category.LRB;
+    }
+
+    @Override
+    public Category apply(Category left, Category right)
+    {
+      return right;
+    }
+
+    @Override
+    public boolean headIsLeft(Category left, Category right)
+    {
+      return false;
+    }
+  }
+  
+  private static class SpecialCombinator extends Combinator {
+    private final Category left;
+    private final Category right;
+    private final Category result;
+    private final boolean headIsLeft;
+    
+    private SpecialCombinator(Category left, Category right, Category result, boolean headIsLeft)
+    {
+      super(RuleType.NOISE);
+      this.left = left;
+      this.right = right;
+      this.result = result;
+      this.headIsLeft = headIsLeft;
+    }
+    
+    @Override
+    public boolean canApply(Category left, Category right)
+    {
+      return this.left.matches(left) && this.right.matches(right);
+    }
+
+    @Override
+    public Category apply(Category left, Category right)
+    {
+      return result;
+    }
+
+    @Override
+    public boolean headIsLeft(Category left, Category right)
+    {
+      return headIsLeft;
+    }
+  }
+    
   private static class ForwardApplication extends Combinator {
     private ForwardApplication()
     {

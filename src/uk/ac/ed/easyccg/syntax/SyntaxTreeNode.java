@@ -67,6 +67,19 @@ public abstract class SyntaxTreeNode implements Comparable<SyntaxTreeNode> {
     {
       return headIsLeft ? leftChild.getHead() : rightChild.getHead();
     }
+    @Override
+    int dimension()
+    {
+      int left = leftChild.dimension();
+      int right = rightChild.dimension();
+      if (left == right) {
+        return 1 + left;
+      } else {
+        return Math.max(left, right);
+      }
+      
+      
+    }
     
   }
   
@@ -127,6 +140,11 @@ public abstract class SyntaxTreeNode implements Comparable<SyntaxTreeNode> {
     {
       return this;
     }
+    @Override
+    int dimension()
+    {
+      return 0;
+    }
   }
   
   static class SyntaxTreeNodeUnary extends SyntaxTreeNode {
@@ -162,11 +180,19 @@ public abstract class SyntaxTreeNode implements Comparable<SyntaxTreeNode> {
     {
       return child.getHead();
     }
+
+    @Override
+    int dimension()
+    {
+      return child.dimension();
+    }
   }
 
   public String toString() {
     return ParsePrinter.CCGBANK_PRINTER.print(this, -1);
   }
+  
+  abstract int dimension();
   
   public int getHeadIndex() {
     return headIndex;
@@ -181,7 +207,7 @@ public abstract class SyntaxTreeNode implements Comparable<SyntaxTreeNode> {
   /**
    * Factory for SyntaxTreeNode. Using a factory so we can have different hashing/caching behaviour when N-best parsing.
    */
-  static class SyntaxTreeNodeFactory {
+  public static class SyntaxTreeNodeFactory {
     private final int[][] categoryHash;
     private final int[][] dependencyHash;
     private final boolean hashWords;

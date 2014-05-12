@@ -3,17 +3,23 @@ package uk.ac.ed.easyccg.main;
 import java.io.File;
 import java.io.IOException;
 import java.text.DecimalFormat;
+import java.util.Collection;
 import java.util.InputMismatchException;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Scanner;
 import java.util.concurrent.TimeUnit;
 
+import uk.ac.ed.easyccg.syntax.Category;
+import uk.ac.ed.easyccg.syntax.InputReader;
 import uk.ac.ed.easyccg.syntax.ParsePrinter;
+import uk.ac.ed.easyccg.syntax.Parser;
 import uk.ac.ed.easyccg.syntax.ParserAStar;
 import uk.ac.ed.easyccg.syntax.ParserAStar.SuperTaggingResults;
-import uk.ac.ed.easyccg.syntax.Parser;
 import uk.ac.ed.easyccg.syntax.SyntaxTreeNode;
+import uk.ac.ed.easyccg.syntax.SyntaxTreeNode.SyntaxTreeNodeFactory;
+import uk.ac.ed.easyccg.syntax.TagDict;
 import uk.ac.ed.easyccg.syntax.TaggerEmbeddings;
 import uk.co.flamingpenguin.jewel.cli.ArgumentValidationException;
 import uk.co.flamingpenguin.jewel.cli.CliFactory;
@@ -53,11 +59,18 @@ public class EasyCCG
     @Option(shortName="s", description = "(Optional) Allow rules not involving category combinations seen in CCGBank. Slows things down by around 20%.")
     boolean getUnrestrictedRules();
 
+    @Option(defaultValue="0.0001", description = "(Optional) Prunes lexical categories whose probability is less than this ratio of the best category. Defaults to 0.0001.")
+    double getSupertaggerbeam();
+    
     @Option(defaultValue="0.0", description = "(Optional) If using N-best parsing, filter parses whose probability is lower than this fraction of the probability of the best parse. Defaults to 0.0")
-    double getNbestBeam();
+    double getNbestbeam();
 
     @Option(helpRequest = true, description = "Display this message", shortName = "h")
     boolean getHelp();
+    
+    @Option(description = "(Optional) Make a tag dictionary")
+    boolean getMakeTagDict();
+
   }
   
   public enum InputFormat {
@@ -78,17 +91,26 @@ public class EasyCCG
     CommandLineArguments parsedArgs = CliFactory.parseArguments(CommandLineArguments.class, args);
     InputFormat input = InputFormat.valueOf(parsedArgs.getInputFormat().toUpperCase());
     
+    if (parsedArgs.getMakeTagDict()) {
+      InputReader reader = InputReader.make(input, new SyntaxTreeNodeFactory(parsedArgs.getMaxLength(), 0));
+      Map<String, Collection<Category>> tagDict = TagDict.makeDict(reader.readFile(parsedArgs.getInputFile()));
+      TagDict.writeTagDict(tagDict, parsedArgs.getModel());
+      System.exit(0);
+    }
+    
+    
     if (!parsedArgs.getModel().exists()) throw new InputMismatchException("Couldn't load model from from: " + parsedArgs.getModel());
     System.err.println("Loading model...");
     
     Parser parser = new ParserAStar(
-        new TaggerEmbeddings(parsedArgs.getModel(), parsedArgs.getMaxLength()), 
+        new TaggerEmbeddings(parsedArgs.getModel(), parsedArgs.getMaxLength(), parsedArgs.getSupertaggerbeam()), 
         parsedArgs.getMaxLength(),
         parsedArgs.getNbest(),
-        parsedArgs.getNbestBeam(),
+        parsedArgs.getNbestbeam(),
         input,
         parsedArgs.getRootCategories(),
         new File(parsedArgs.getModel(), "unaryRules"),
+        new File(parsedArgs.getModel(), "binaryRules"),
         parsedArgs.getUnrestrictedRules() ? null : new File(parsedArgs.getModel(), "seenRules")
         );
 
@@ -98,6 +120,8 @@ public class EasyCCG
     if ((outputFormat == OutputFormat.PROLOG || outputFormat == OutputFormat.EXTENDED) && input != InputFormat.POSANDNERTAGGED) throw new Error("Must use \"-i POSandNERtagged\" for this output");
     
     if (!parsedArgs.getInputFile().getName().isEmpty()) {
+      System.err.println("Parsing...");
+
       // Read from file
       Stopwatch t = Stopwatch.createStarted();
       SuperTaggingResults results = new SuperTaggingResults();
@@ -115,7 +139,7 @@ public class EasyCCG
       }
 
       System.err.println("Sentences parsed: " + results.parsedSentences);
-      System.err.println("Speed: " + twoDP.format((double) results.parsedSentences / t.elapsed(TimeUnit.SECONDS)) + " sentences per second");
+      System.err.println("Speed: " + twoDP.format(1000.0 * results.parsedSentences / t.elapsed(TimeUnit.MILLISECONDS)) + " sentences per second");
     } else {
       // Read from stdin
       Scanner sc = new Scanner(System.in,"UTF-8");

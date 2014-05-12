@@ -35,6 +35,7 @@ public class ParserAStar implements Parser
 
   public ParserAStar(Tagger tagger, int maxSentenceLength, int nbest, double nbestBeam, InputFormat inputFormat, List<String> validRootCategories, 
       File unaryRulesFile,
+      File extraCombinatorsFile,
       File seenRulesFile) 
   throws IOException {
     this.tagger = tagger;
@@ -45,7 +46,14 @@ public class ParserAStar implements Parser
     this.unaryRules = loadUnaryRules(unaryRulesFile);
     this.seenRules = new SeenRules(seenRulesFile);
     this.nbestBeam = Math.log(nbestBeam);
-
+    
+    List<Combinator> combinators = new ArrayList<Combinator>(Combinator.STANDARD_COMBINATORS);
+    
+    if (extraCombinatorsFile.exists()) {
+      combinators.addAll(Combinator.loadSpecialCombinators(extraCombinatorsFile));
+    }
+    this.binaryRules = ImmutableList.copyOf(combinators);    
+    
     List<Category> cats = new ArrayList<Category>();
     for (String cat : validRootCategories) {
       cats.add(Category.valueOf(cat));
@@ -55,6 +63,7 @@ public class ParserAStar implements Parser
   
   private final int maxLength;
   
+  private final Collection<Combinator> binaryRules;
   private final Multimap<Category, Category> unaryRules;
   private final int nbest;
   private final double nbestBeam;
@@ -260,7 +269,7 @@ public class ParserAStar implements Parser
       }
       
       if (result == 0) {
-        // All other things being equal, prefer the parse with shorter dependencies (i.e. right-branching).
+        // All other things being equal, it works best to prefer parser with longer dependencies (i.e. non-local attachment).
         return parse.totalDependencyLength - o.parse.totalDependencyLength;
       } else {
         return result;
@@ -443,7 +452,7 @@ public class ParserAStar implements Parser
   
     Collection<RuleProduction> result = rightToRules.get(right);
     if (result == null) {
-      result = Combinator.getRules(left, right);
+      result = Combinator.getRules(left, right, binaryRules);
       rightToRules.put(right, ImmutableList.copyOf(result));
     } 
     

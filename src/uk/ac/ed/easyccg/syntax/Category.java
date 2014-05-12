@@ -8,7 +8,7 @@ import java.util.Set;
 
 import com.google.common.collect.ImmutableSet;
 
-abstract class Category {
+public abstract class Category {
   private final String cat;
   private final int id;
   private final static String WILDCARD_FEATURE = "X"; 
@@ -62,6 +62,8 @@ abstract class Category {
   public static final Category SEMICOLON = Category.valueOf(";");
   public static final Category CONJ = Category.valueOf("conj");
   public final static Category N = valueOf("N"); 
+  public static final Category LQU = Category.valueOf("LQU");
+  public static final Category LRB = Category.valueOf("LRB");
 
   public static Category valueOf(String cat) {
     

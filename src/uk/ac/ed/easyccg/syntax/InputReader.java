@@ -128,7 +128,7 @@ public abstract class InputReader
         result.append(word.word + " ");
       }
       
-      return words.toString().trim();
+      return result.toString().trim();
     }
 
     public static InputToParser fromTokens(List<String> tokens) {
