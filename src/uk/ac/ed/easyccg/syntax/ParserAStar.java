@@ -10,6 +10,8 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.PriorityQueue;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import uk.ac.ed.easyccg.main.EasyCCG.InputFormat;
 import uk.ac.ed.easyccg.syntax.Combinator.RuleProduction;
@@ -21,6 +23,7 @@ import uk.ac.ed.easyccg.syntax.SyntaxTreeNode.SyntaxTreeNodeLeaf;
 import uk.ac.ed.easyccg.syntax.SyntaxTreeNode.SyntaxTreeNodeUnary;
 import uk.ac.ed.easyccg.syntax.SyntaxTreeNode.SyntaxTreeNodeVisitor;
 
+import com.google.common.base.Stopwatch;
 import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableList;
@@ -33,7 +36,8 @@ import com.google.common.collect.Table.Cell;
 public class ParserAStar implements Parser
 {
 
-  public ParserAStar(Tagger tagger, int maxSentenceLength, int nbest, double nbestBeam, InputFormat inputFormat, List<String> validRootCategories, 
+  public ParserAStar(
+      Tagger tagger, int maxSentenceLength, int nbest, double nbestBeam, InputFormat inputFormat, List<String> validRootCategories, 
       File unaryRulesFile,
       File extraCombinatorsFile,
       File seenRulesFile) 
@@ -81,6 +85,17 @@ public class ParserAStar implements Parser
   private final static double CERTAIN = 0.0;
   private final static double IMPOSSIBLE = Double.NEGATIVE_INFINITY;
   
+  private final Multimap<Integer, Long> sentenceLengthToParseTimeInNanos = HashMultimap.create();
+  
+  @Override
+  public Multimap<Integer, Long> getSentenceLengthToParseTimeInNanos()
+  {
+    return sentenceLengthToParseTimeInNanos;
+  }
+
+  private final Stopwatch parsingTimeOnly = Stopwatch.createUnstarted();
+  private final Stopwatch taggingTimeOnly = Stopwatch.createUnstarted();
+
   /**
    * Loads file containing unary rules
    */
@@ -110,6 +125,16 @@ public class ParserAStar implements Parser
     List<SyntaxTreeNode> parses = doParsing(input);   
     return parses;
   }
+  
+  /* (non-Javadoc)
+   * @see uk.ac.ed.easyccg.syntax.ParserInterface#parse(java.lang.String)
+   */
+  @Override
+  public List<SyntaxTreeNode> parse(SuperTaggingResults results, String line) {
+    InputToParser input = reader.readInput(line);
+    List<SyntaxTreeNode> parses = parseSentence(results, input);   
+    return parses;
+  }
 
   /* (non-Javadoc)
    * @see uk.ac.ed.easyccg.syntax.ParserInterface#parseTokens(java.util.List)
@@ -123,13 +148,13 @@ public class ParserAStar implements Parser
   }
   
   public static class SuperTaggingResults {
-    public int parsedSentences = 0;
-    public int totalSentences = 0;
+    public AtomicInteger parsedSentences = new AtomicInteger();
+    public AtomicInteger totalSentences = new AtomicInteger();
     
-    public int rightCats = 0;
-    public int totalCats = 0;
+    public AtomicInteger rightCats = new AtomicInteger();
+    public AtomicInteger totalCats = new AtomicInteger();
     
-    public int exactMatch = 0;    
+    public AtomicInteger exactMatch = new AtomicInteger();    
   }
   
   /* (non-Javadoc)
@@ -169,7 +194,7 @@ public class ParserAStar implements Parser
   public List<SyntaxTreeNode> parseSentence(SuperTaggingResults results,
       InputToParser input)
   {
-    results.totalSentences++;
+    results.totalSentences.incrementAndGet();
 
     if (input.length() >= maxLength) {
       System.err.println("Skipping sentence of length " + input.length());
@@ -179,7 +204,7 @@ public class ParserAStar implements Parser
     List<SyntaxTreeNode> parses = doParsing(input);
     
     if (parses != null) {
-      results.parsedSentences++;
+      results.parsedSentences.incrementAndGet();
 
       if (input.haveGoldCategories()) {
         List<Category> gold = input.getGoldCategories();
@@ -194,11 +219,11 @@ public class ParserAStar implements Parser
           }
         }
         
-        results.rightCats = results.rightCats + bestCorrect;
-        results.totalCats = results.totalCats + gold.size();
+        results.rightCats.addAndGet(bestCorrect);
+        results.totalCats.addAndGet(gold.size());
         
         if (bestCorrect == gold.size()) {
-          results.exactMatch++;
+          results.exactMatch.incrementAndGet();
         }
       }
 
@@ -219,13 +244,30 @@ public class ParserAStar implements Parser
       return null;
     }
     
-    List<SyntaxTreeNode> parses;
+    Stopwatch stopWatch = Stopwatch.createStarted();
+    
+    List<List<SyntaxTreeNodeLeaf>> supertags;
+    
     if (input.isAlreadyTagged()) {
-      parses = parseAstar(input.getInputSupertags());
+      supertags = input.getInputSupertags();
     } else {
-      parses = parseAstar(tagger.tag(input.getInputWords()));  
+      try{
+        taggingTimeOnly.start();
+        supertags = tagger.tag(input.getInputWords());
+      } finally {
+        taggingTimeOnly.stop();
+      }
     }
-    return parses;
+    
+    try{
+      parsingTimeOnly.start();
+      List<SyntaxTreeNode> parses = parseAstar(supertags);
+      return parses;
+    } finally {
+      parsingTimeOnly.stop();
+      stopWatch.stop();    
+      sentenceLengthToParseTimeInNanos.put(input.length(), stopWatch.elapsed(TimeUnit.NANOSECONDS));
+    }
   }
 
   
@@ -282,7 +324,7 @@ public class ParserAStar implements Parser
    * 
    * Returns null if the parse fails.
    */
-  private List<SyntaxTreeNode> parseAstar(List<List<SyntaxTreeNode>> supertags) {
+  private List<SyntaxTreeNode> parseAstar(List<List<SyntaxTreeNodeLeaf>> supertags) {
 
     final int sentenceLength = supertags.size();
     final PriorityQueue<AgendaItem> agenda = new PriorityQueue<ParserAStar.AgendaItem>();
@@ -374,7 +416,7 @@ public class ParserAStar implements Parser
    * The upper bound is simply the product of the probabilities for the most probable supertag for 
    * each word outside the span.
    */
-  private double[][] computeOutsideProbabilities(List<List<SyntaxTreeNode>> supertags)
+  private double[][] computeOutsideProbabilities(List<List<SyntaxTreeNodeLeaf>> supertags)
   {
     int sentenceLength = supertags.size();
     final double[][] outsideProbability = new double[sentenceLength + 1][sentenceLength + 1];
@@ -428,7 +470,15 @@ public class ParserAStar implements Parser
                 (production.ruleType == RuleType.BA || production.ruleType == RuleType.BX || leftChild.getRuleType() == RuleType.GBX)) {
         // Eisner normal form constraint.
         continue;
-      } else if (spanLength == sentenceLength && !possibleRootCategories.contains(production.category)) {
+      } else if (leftChild.getRuleType() == RuleType.UNARY && 
+                 production.ruleType == RuleType.FA && leftChild.getCategory().isForwardTypeRaised()) {
+        // Hockenmaier normal form constraint.
+        continue;
+      } else if (rightChild.getRuleType() == RuleType.UNARY && 
+                 production.ruleType == RuleType.BA && rightChild.getCategory().isBackwardTypeRaised()) {
+        // Hockenmaier normal form constraint.
+        continue;
+      }else if (spanLength == sentenceLength && !possibleRootCategories.contains(production.category)) {
         // Enforce that the root node must have one of a pre-specified list of categories.
         continue ;
       } else {
@@ -470,6 +520,18 @@ public class ParserAStar implements Parser
     return v.result;
   }
 
+  @Override
+  public long getParsingTimeOnlyInMillis()
+  {
+    return parsingTimeOnly.elapsed(TimeUnit.MILLISECONDS);
+  }
+
+  @Override
+  public long getTaggingTimeOnlyInMillis()
+  {
+    return taggingTimeOnly.elapsed(TimeUnit.MILLISECONDS);
+  }
+  
   private static class GetSupertagsVisitor implements SyntaxTreeNodeVisitor {
     List<Category> result = new ArrayList<Category>();
 
@@ -592,18 +654,25 @@ public class ParserAStar implements Parser
 
       return result;
     }
-    
+
     private final boolean[][] seen;
+    private final int numberOfSeenCategories;
     boolean isSeen(Category left, Category right) {
       if (seen == null) return true;
       left = simplify(left);
       right = simplify(right);
-      return left.getID() < seen.length && right.getID() < seen.length && seen[left.getID()][right.getID()];
+      return left.getID() < numberOfSeenCategories && right.getID() < numberOfSeenCategories && 
+             seen[left.getID()][right.getID()];
     }
     
     private SeenRules(File file) throws IOException {   
       if (file == null) {
         seen = null;
+        numberOfSeenCategories = 0;
+      } else if (!file.exists()) {
+        System.err.println("No 'seenRules' file available for model. Allowing all CCG-legal rules.");
+        seen = null;
+        numberOfSeenCategories = 0;
       } else {
         Table<Category, Category, Boolean> tab = HashBasedTable.create();
         int maxID = 0;
@@ -624,6 +693,7 @@ public class ParserAStar implements Parser
         for (Cell<Category, Category, Boolean> entry : tab.cellSet()) {
           seen[entry.getRowKey().getID()][entry.getColumnKey().getID()] = true;
         }
+        numberOfSeenCategories = seen.length;
       }
     }
   }

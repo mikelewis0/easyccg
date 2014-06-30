@@ -13,7 +13,7 @@ import edu.mit.jwi.item.POS;
 import edu.mit.jwi.morph.SimpleStemmer;
 
 /**
- * Wordnet-based lemmatizer
+ * Wordnet-based lemmatizer. Morpha seems to work better, so I use that instead.
  */
 public class Lemmatizer
 {

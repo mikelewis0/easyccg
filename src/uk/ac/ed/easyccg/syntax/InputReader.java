@@ -10,6 +10,7 @@ import java.util.List;
 
 import uk.ac.ed.easyccg.main.EasyCCG.InputFormat;
 import uk.ac.ed.easyccg.syntax.SyntaxTreeNode.SyntaxTreeNodeFactory;
+import uk.ac.ed.easyccg.syntax.SyntaxTreeNode.SyntaxTreeNodeLeaf;
 
 public abstract class InputReader
 {
@@ -82,29 +83,44 @@ public abstract class InputReader
     };
   }
   
-  abstract InputToParser readInput(String line);
+  public abstract InputToParser readInput(String line);
   
-  static class InputToParser {
+  public static class InputToParser {
     private final List<InputWord> words;
-    InputToParser(List<InputWord> words, List<Category> goldCategories, List<List<SyntaxTreeNode>> inputSupertags)
+    private boolean isAlreadyTagged;
+    InputToParser(List<InputWord> words, List<Category> goldCategories, List<List<SyntaxTreeNodeLeaf>> inputSupertags, boolean isAlreadyTagged)
     {
       this.words = words;
       this.goldCategories = goldCategories;
       this.inputSupertags = inputSupertags;
+      this.isAlreadyTagged = isAlreadyTagged;
     }
     private final List<Category> goldCategories;
-    private final List<List<SyntaxTreeNode>> inputSupertags;
+    private final List<List<SyntaxTreeNodeLeaf>> inputSupertags;
     public int length()
     {
       return words.size();
     }
+    
+    /**
+     * If true, the Parser should not supertag the data itself, and use getInputSupertags() instead.
+     */
     public boolean isAlreadyTagged()
     {
-      return getInputSupertags() != null;
+      return isAlreadyTagged;
     }
-    public List<List<SyntaxTreeNode>> getInputSupertags()
+    public List<List<SyntaxTreeNodeLeaf>> getInputSupertags()
     {
       return inputSupertags;
+    }
+    
+    public List<SyntaxTreeNodeLeaf> getInputSupertags1best()
+    {
+      List<SyntaxTreeNodeLeaf> result = new ArrayList<SyntaxTreeNodeLeaf>();
+      for (List<SyntaxTreeNodeLeaf> tagsForWord : inputSupertags) {
+        result.add(tagsForWord.get(0));
+      }
+      return result;
     }
     public boolean haveGoldCategories()
     {
@@ -136,7 +152,7 @@ public abstract class InputReader
       for (String word : tokens) {
         inputWords.add(new InputWord(word, null, null));
       }
-      return new InputToParser(inputWords, null, null);
+      return new InputToParser(inputWords, null, null, false);
     }
     
   }
@@ -145,7 +161,7 @@ public abstract class InputReader
   private static class RawInputReader extends InputReader {
 
     @Override
-    InputToParser readInput(String line)
+    public InputToParser readInput(String line)
     {
       //TODO quotes
       return InputToParser.fromTokens(Arrays.asList(line.replaceAll("\"", "").replaceAll("  +", " ").trim().split(" ")));
@@ -168,15 +184,15 @@ public abstract class InputReader
     private final SyntaxTreeNodeFactory nodeFactory;
     
     @Override
-    InputToParser readInput(String line) {
+    public InputToParser readInput(String line) {
     // Pierre  NNP     0       N/N     0.99525070603732        N       0.0026450007306822|Vinken       NNP     0       N       0.70743834018551        S/S     0.14043752457392
-      List<List<SyntaxTreeNode>> supertags = new ArrayList<List<SyntaxTreeNode>>();
+      List<List<SyntaxTreeNodeLeaf>> supertags = new ArrayList<List<SyntaxTreeNodeLeaf>>();
 
-      String[] split = line.split("|");
+      String[] split = line.split("\\|");
       List<InputWord> words = new ArrayList<InputWord>(split.length);
       for (String wordTags :  split) {
         
-        List<SyntaxTreeNode> entries = new ArrayList<SyntaxTreeNode>();
+        List<SyntaxTreeNodeLeaf> entries = new ArrayList<SyntaxTreeNodeLeaf>();
         String[] fields = wordTags.split("(\t| )+");
         
         String word = fields[0];
@@ -191,37 +207,49 @@ public abstract class InputReader
         supertags.add(entries);
       }
       
-      return new InputToParser(words, null, supertags);
+      return new InputToParser(words, null, supertags, true);
     }
     
   }
   
   private static class GoldInputReader extends InputReader {
 
+    private SyntaxTreeNodeFactory nodeFactory;
+
     @Override
-    InputToParser readInput(String line)
+    public InputToParser readInput(String line)
     {
       List<Category> result = new ArrayList<Category>();
       String[] goldEntries = line.split(" ");
       List<InputWord> words = new ArrayList<InputWord>(goldEntries.length);
+      List<List<SyntaxTreeNodeLeaf>> supertags = new ArrayList<List<SyntaxTreeNodeLeaf>>();
       for (String entry : goldEntries) {
         String[] goldFields = entry.split("\\|");
         
         if (goldFields[0].equals("\"")) continue ; //TODO quotes
         if (goldFields.length < 3) throw new InputMismatchException("Invalid input: expected \"word|POS|SUPERTAG\" but was: " + entry);
 
-        words.add(new InputWord(goldFields[0]));
-        result.add(Category.valueOf(goldFields[2]));
+        String word = goldFields[0];
+        String pos = goldFields[1];
+        Category category = Category.valueOf(goldFields[2]);
+        words.add(new InputWord(word));
+        result.add(category);
+        supertags.add(Arrays.asList(nodeFactory.makeTerminal(word, category, pos, null, 1.0, supertags.size())));
       }
-      return new InputToParser(words, result, null);
+      return new InputToParser(words, result, supertags, false);
     }    
+    
+    private GoldInputReader(SyntaxTreeNodeFactory nodeFactory)
+    {
+      this.nodeFactory = nodeFactory;
+    }
   }
   
   private static class POSTaggedInputReader extends InputReader
   {
 
     @Override
-    InputToParser readInput(String line)
+    public InputToParser readInput(String line)
     {
       String[] taggedEntries = line.split(" ");
       List<InputWord> inputWords = new ArrayList<InputWord>(taggedEntries.length);
@@ -232,14 +260,14 @@ public abstract class InputReader
         if (taggedFields[0].equals("\"")) continue ; //TODO quotes
         inputWords.add(new InputWord(taggedFields[0], taggedFields[1], null));
       }
-      return new InputToParser(inputWords, null, null);
+      return new InputToParser(inputWords, null, null, false);
     }    
   }
-
+  
   private static class POSandNERTaggedInputReader extends InputReader
   {
     @Override
-    InputToParser readInput(String line)
+    public InputToParser readInput(String line)
     {
       String[] taggedEntries = line.split(" ");
       List<InputWord> inputWords = new ArrayList<InputWord>(taggedEntries.length);
@@ -251,7 +279,7 @@ public abstract class InputReader
         		"The C&C can produce this format using: \"bin/pos -model models/pos | bin/ner -model models/ner -ofmt \"%w|%p|%n \\n\"\"" );
         inputWords.add(new InputWord(taggedFields[0], taggedFields[1], taggedFields[2]));
       }
-      return new InputToParser(inputWords, null, null);
+      return new InputToParser(inputWords, null, null, false);
     }    
   }
 
@@ -260,7 +288,7 @@ public abstract class InputReader
     switch (inputFormat) {
     case SUPERTAGGED : return new SuperTaggedInputReader(nodeFactory);  
     case TOKENIZED : return new RawInputReader();  
-    case GOLD : return new GoldInputReader();  
+    case GOLD : return new GoldInputReader(nodeFactory);  
     case POSTAGGED : return new POSTaggedInputReader();  
     case POSANDNERTAGGED : return new POSandNERTaggedInputReader();  
     default : throw new Error("Unknown input format: " + inputFormat);

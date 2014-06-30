@@ -132,6 +132,7 @@ public class TagDict
     
     Collections.sort(cats, comparator);
     List<Category> cats2 = new ArrayList<Category>();
+        
     for (Entry<Category> entry : cats) {
       cats2.add(entry.getElement());
     }

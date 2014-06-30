@@ -83,7 +83,7 @@ public abstract class SyntaxTreeNode implements Comparable<SyntaxTreeNode> {
     
   }
   
-  static class SyntaxTreeNodeLeaf extends SyntaxTreeNode {
+  public static class SyntaxTreeNodeLeaf extends SyntaxTreeNode {
     private SyntaxTreeNodeLeaf(
         String word, String pos, String ner, 
         Category category, double probability, int hash, int totalDependencyLength, int headIndex
@@ -96,7 +96,7 @@ public abstract class SyntaxTreeNode implements Comparable<SyntaxTreeNode> {
     }
     private final String pos;
     private final String ner;
-    private final String word;
+    private final String word;    
     @Override
     void accept(SyntaxTreeNodeVisitor v)
     {
@@ -144,6 +144,10 @@ public abstract class SyntaxTreeNode implements Comparable<SyntaxTreeNode> {
     int dimension()
     {
       return 0;
+    }
+    public int getSentencePosition()
+    {
+      return getHeadIndex();
     }
   }
   
@@ -236,7 +240,7 @@ public abstract class SyntaxTreeNode implements Comparable<SyntaxTreeNode> {
       return result;
     }
     
-    public SyntaxTreeNode makeTerminal(String word, Category category, String pos, String ner, double probability, int sentencePosition) {
+    public SyntaxTreeNodeLeaf makeTerminal(String word, Category category, String pos, String ner, double probability, int sentencePosition) {
       return new SyntaxTreeNodeLeaf(
           word, pos, ner, category, probability, 
           hashWords ? categoryHash[sentencePosition][category.getID()] : 0, 0, sentencePosition);
@@ -281,7 +285,7 @@ public abstract class SyntaxTreeNode implements Comparable<SyntaxTreeNode> {
 
   abstract void accept(SyntaxTreeNodeVisitor v);
   
-  interface SyntaxTreeNodeVisitor {
+  public interface SyntaxTreeNodeVisitor {
     void visit(SyntaxTreeNodeBinary node);
     void visit(SyntaxTreeNodeUnary node);
     void visit(SyntaxTreeNodeLeaf node);

@@ -1,13 +1,18 @@
 package uk.ac.ed.easyccg.syntax;
 
 import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.DataInputStream;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileWriter;
+import java.io.FilenameFilter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.List;
 import java.util.zip.GZIPInputStream;
 
 public class Util
@@ -45,6 +50,32 @@ public class Util
       
   }
   
+  public static String executeCommand(String command) throws IOException
+  {
+      Process process = Runtime.getRuntime().exec(new String[] { "/bin/sh", "-c", command });
+      
+      BufferedReader input =
+        new BufferedReader
+          (new InputStreamReader(process.getInputStream()));
+
+      StringBuilder output = new StringBuilder();
+      String line;
+      while ((line = input.readLine()) != null) {
+        output.append(line);
+        output.append("\n");
+      }
+      input.close();
+      
+      return output.toString();      
+    
+  }
+  
+  public static void writeStringToFile(String text, File filePath)
+  throws java.io.IOException{
+      BufferedWriter out = new BufferedWriter(new FileWriter(filePath));
+      out.write(text);
+      out.close();
+  }
 
   public static Iterator<String> readFileLineByLine(final File filePath)
   throws java.io.IOException
@@ -80,7 +111,7 @@ public class Util
           }
           catch (IOException e)
           {
-            throw new Error(e);         
+            throw new RuntimeException(e);         
           }
         }
         
@@ -97,7 +128,7 @@ public class Util
         }
         catch (IOException e)
         {
-          throw new Error(e);
+          throw new RuntimeException(e);
         }
         return result;
       }
@@ -171,5 +202,32 @@ public class Util
     }
      
     return -1;
+  }
+  
+  public static List<File> findAllFiles(File folder, final String regex) {
+    return Util.findAllFiles(folder,
+        new FilenameFilter() {
+          @Override
+          public boolean accept(File dir, String name) {
+              return name.matches(regex);
+          }
+      });    
+  }
+  
+  public static List<File> findAllFiles(File folder, FilenameFilter filter) {
+    List<File> result = new ArrayList<File>();
+    
+    findAllFiles(folder, filter, result);
+    return result;
+  }
+
+  private static void findAllFiles(File folder, FilenameFilter filter, List<File> result) {
+    for (File file : folder.listFiles()) {
+      if (file.isDirectory()) {
+        findAllFiles(file, filter, result);
+      } else if (filter.accept(file, file.getName())) {
+        result.add(file.getAbsoluteFile());
+      }
+    }
   }
 }

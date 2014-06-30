@@ -1,14 +1,16 @@
 package uk.ac.ed.easyccg.syntax;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
-import uk.ac.ed.easyccg.lemmatizer.Lemmatizer;
+import uk.ac.ed.easyccg.lemmatizer.MorphaStemmer;
 import uk.ac.ed.easyccg.syntax.Combinator.RuleType;
 import uk.ac.ed.easyccg.syntax.SyntaxTreeNode.SyntaxTreeNodeBinary;
 import uk.ac.ed.easyccg.syntax.SyntaxTreeNode.SyntaxTreeNodeLeaf;
 import uk.ac.ed.easyccg.syntax.SyntaxTreeNode.SyntaxTreeNodeUnary;
 import uk.ac.ed.easyccg.syntax.SyntaxTreeNode.SyntaxTreeNodeVisitor;
+import uk.ac.ed.easyccg.syntax.evaluation.CCGBankDependencies;
 
 import com.google.common.base.Strings;
 
@@ -24,9 +26,9 @@ public abstract class ParsePrinter
   public String print(List<SyntaxTreeNode> parses, int id)
   {
     StringBuilder result = new StringBuilder();
-    
-   
-    
+
+
+
     if (parses == null) {
       if (id > -1) printHeader(id, result);
       printFailure(result);
@@ -43,22 +45,22 @@ public abstract class ParsePrinter
         printParse(parse, id, result);
       }
     }
-    
+
     printFooter(result);
     return result.toString();
   }
-  
+
   public String print(SyntaxTreeNode entry, int id) {
     StringBuilder result = new StringBuilder();
     if (id > -1) printHeader(id, result);
-    
+
     if (entry == null) {
       printFailure(result);
     } else {
       printParse(entry, id, result);
     }
 
-    
+
     printFooter(result);
     return result.toString();
   }
@@ -77,10 +79,10 @@ public abstract class ParsePrinter
     {
       this.result = result;
     }
-    
+
   }
-  
-  
+
+
   private static class CCGBankPrinter extends ParsePrinter {
 
     @Override
@@ -115,9 +117,7 @@ public abstract class ParsePrinter
         result.append(node.getCategory().toString());
         result.append(" 0 1> ");
         node.child.accept(this);
-
         result.append(") ");
-
       }
 
       @Override
@@ -178,7 +178,7 @@ public abstract class ParsePrinter
     {
     }
   }
-  
+
   private static class HTMLPrinter extends ParsePrinter {
     @Override
     void printFailure(StringBuilder result)
@@ -191,7 +191,7 @@ public abstract class ParsePrinter
     {
 
       result.append("<html>\n" + 
-      		"<body>\n");
+      "<body>\n");
     }
 
     @Override
@@ -199,7 +199,7 @@ public abstract class ParsePrinter
     {
 
       result.append("</body>\n" + 
-      		"</html>");
+      "</html>");
     }
 
     @Override
@@ -228,7 +228,7 @@ public abstract class ParsePrinter
       }
       result.append("</table>");
     }
-    
+
     List<List<SyntaxTreeNode>> getRows(SyntaxTreeNode parse) {
       List<List<SyntaxTreeNode>> result = new ArrayList<List<SyntaxTreeNode>>();
       getRows(parse, result, 0);
@@ -240,11 +240,11 @@ public abstract class ParsePrinter
         return 1;
       } else {
         int result = 0;
-        
+
         for (SyntaxTreeNode child : node.getChildren()) {
           result = result + getWidth(child); 
         }
-        
+
         return result;
       }
     }
@@ -252,16 +252,16 @@ public abstract class ParsePrinter
     void printFileHeader(StringBuilder result)
     {
     }
-    
+
     int getRows(SyntaxTreeNode node, List<List<SyntaxTreeNode>> result, int minIndentation) {
-      
+
       int maxChildLevel = 0;
       int i = minIndentation;
       for (SyntaxTreeNode child : node.getChildren()) {
         maxChildLevel = Math.max(getRows(child, result, i), maxChildLevel);
         i = i + getWidth(child);
       }
-      
+
       int level;
       if (node.getChildren().size() > 0) {
         level = maxChildLevel + 1;
@@ -275,11 +275,11 @@ public abstract class ParsePrinter
       while (result.get(level).size() < minIndentation + 1) {
         result.get(level).add(null);
       }
-      
+
       result.get(level).set(minIndentation, node);
       return level;
     }
-    
+
     private String makeCell(Category category, int width) {
       return "<td colspan=" + width + "><center><hr>" + category.toString() + "</center></td>";
     }
@@ -321,13 +321,13 @@ public abstract class ParsePrinter
         } else {
           result.append(" ");
         }
-        
+
         result.append(word.getWord() + "|" + (word.getPos() == null ? "" : word.getPos()) + "|" + word.getCategory());
       }
     }
   }
-  
-   
+
+
   public static class PrologPrinter extends ParsePrinter {
 
     /*
@@ -344,7 +344,7 @@ w(2, 2, 'like', 'like', 'VBP', 'I-VP', 'O', '(S[dcl]\NP)/NP').
 w(2, 3, 'cake', 'cake', 'NN', 'I-NP', 'O', 'N').
 
      */
-    
+
     private static String getRuleName(RuleType combinator) {
       // fa ba fc bx gfc gbx  conj
       switch (combinator) 
@@ -352,27 +352,28 @@ w(2, 3, 'cake', 'cake', 'NN', 'I-NP', 'O', 'N').
       case FA : return "fa";
       case BA : return "ba";
       case FC : return "fc";
-      case BX : return "fx";
+      case BX : return "bx";
       case CONJ : return "conj";
       case RP : return "rp";
+      case LP : return "lp";
       case GFC : return "gfc";
       case GBX : return "gbx";
       }
-      
+
       throw new RuntimeException("Unknown rule type: " + combinator);
     }
-    
+
     @Override
     void printFileHeader(StringBuilder result)
     {
       result.append(":- multifile w/8, ccg/2, id/2.\n" + 
-      		":- discontiguous w/8, ccg/2, id/2.\n" + 
-      		":- dynamic w/8, ccg/2, id/2.\n" + 
-      		"\n" + 
-      		"");
+          ":- discontiguous w/8, ccg/2, id/2.\n" + 
+          ":- dynamic w/8, ccg/2, id/2.\n" + 
+          "\n" + 
+      "");
     }
 
-    
+
     @Override
     void printFailure(StringBuilder result)
     {
@@ -393,12 +394,12 @@ w(2, 3, 'cake', 'cake', 'NN', 'I-NP', 'O', 'N').
     {
       printDerivation(parse, sentenceNumber, result);
       result.append("\n");
-      
+
       int i = 0;
       for (SyntaxTreeNodeLeaf word : parse.getWords()) {
         //w(2, 1, 'I', 'I', 'PRP', 'I-NP', 'I-PER', 'NP').
         i++;
-        result.append("w(" + sentenceNumber + ", " + i + ", '" + word.getWord() + "', '" + Lemmatizer.lemmatize(word.getWord(), word.getPos()) + "', '" + word.getPos() + "', 'O" + "', '" + word.getNER()  + "', '" + word.getCategory() + "').\n");
+        result.append("w(" + sentenceNumber + ", " + i + ", '" + word.getWord() + "', '" + MorphaStemmer.stemToken(word.getWord(), word.getPos()) + "', '" + word.getPos() + "', 'O" + "', '" + word.getNER()  + "', '" + word.getCategory() + "').\n");
       }
     }
 
@@ -417,7 +418,7 @@ w(2, 3, 'cake', 'cake', 'NN', 'I-NP', 'O', 'N').
         super(result);
         this.sentenceNumber = sentenceNumber;
       }
-      
+
       @Override
       public void visit(SyntaxTreeNodeBinary node)
       {
@@ -438,13 +439,13 @@ w(2, 3, 'cake', 'cake', 'NN', 'I-NP', 'O', 'N').
         // lex('N','NP',
         result.append(",\n");
         printIndent(currentIndent);
-        result.append("lex('" + node.child.getCategory() + "','" +node.getCategory() + "'");
+        result.append(getUnaryRuleName(node.child.getCategory(), node.getCategory()) + "('" + node.child.getCategory() + "','" +node.getCategory() + "'");
         currentIndent++;        
         node.child.accept(this);
         result.append(")");
         currentIndent--;
       }
-      
+
       @Override
       public void visit(SyntaxTreeNodeLeaf node)
       {
@@ -461,7 +462,15 @@ w(2, 3, 'cake', 'cake', 'NN', 'I-NP', 'O', 'N').
     }
 
   }
-  
+
+  static String getUnaryRuleName(Category initial, Category result) {
+    if ((Category.NP.matches(initial) || Category.PP.matches(initial)) && result.isTypeRaised()) {
+      return "tr";
+    } else {
+      return "lex";
+    }
+  }
+
   static class ExtendedCCGBankPrinter extends ParsePrinter {
 
 
@@ -495,7 +504,7 @@ w(2, 3, 'cake', 'cake', 'NN', 'I-NP', 'O', 'N').
         result.append("(<T ");
         result.append(node.getCategory().toString());
         result.append(" ");
-        result.append("lex 0 1> ");
+        result.append(getUnaryRuleName(node.child.getCategory(), node.getCategory()) + " 0 1> ");
         node.child.accept(this);
 
         result.append(") ");
@@ -510,7 +519,7 @@ w(2, 3, 'cake', 'cake', 'NN', 'I-NP', 'O', 'N').
         result.append(" ");
         result.append(CCGBankPrinter.normalize(node.getWord()));
         result.append(" ");
-        result.append(Lemmatizer.lemmatize(CCGBankPrinter.normalize(node.getWord()), node.getPos()));
+        result.append(MorphaStemmer.stemToken(CCGBankPrinter.normalize(node.getWord()), node.getPos()));
 
         if (node.getPos() == null) {
           result.append(" NN ");
@@ -545,6 +554,70 @@ w(2, 3, 'cake', 'cake', 'NN', 'I-NP', 'O', 'N').
     void printFileHeader(StringBuilder result)
     {
     }
-  
+
+  }
+
+  public static class DependenciesPrinter extends ParsePrinter {
+
+    @Override
+    void printFileHeader(StringBuilder result)
+    {
+      result.append("Empty header\n");
+      result.append("To keep C&C evaluate script happy\n");
+      result.append("\n");
+    }
+
+    @Override
+    void printFailure(StringBuilder result)
+    {
+    }
+
+    @Override
+    void printHeader(int id, StringBuilder result)
+    {
+    }
+
+    @Override
+    void printFooter(StringBuilder result)
+    {
+    }
+
+    @Override
+    void printParse(SyntaxTreeNode parse, int sentenceNumber, StringBuilder result)
+    {
+      /*
+Pierre_1 (N{Y}/N{Y}<1>){_} 1 Vinken_2 0
+61_4 (N{Y}/N{Y}<1>){_} 1 years_5 0
+old_6 ((S[adj]{_}\NP{Y}<1>){_}\NP{Z}<2>){_} 2 years_5 0
+old_6 ((S[adj]{_}\NP{Y}<1>){_}\NP{Z}<2>){_} 1 Vinken_2 6
+the_10 (NP[nb]{Y}/N{Y}<1>){_} 1 board_11 0
+join_9 ((S[b]{_}\NP{Y}<1>){_}/NP{Z}<2>){_} 2 board_11 0
+nonexecutive_14 (N{Y}/N{Y}<1>){_} 1 director_15 0
+a_13 (NP[nb]{Y}/N{Y}<1>){_} 1 director_15 0
+as_12 (((S[X]{Y}\NP{Z}){Y}\(S[X]{Y}<1>\NP{Z}){Y}){_}/NP{W}<2>){_} 3 director_15 0
+as_12 (((S[X]{Y}\NP{Z}){Y}\(S[X]{Y}<1>\NP{Z}){Y}){_}/NP{W}<2>){_} 2 join_9 0
+Nov._16 (((S[X]{Y}\NP{Z}){Y}\(S[X]{Y}<1>\NP{Z}){Y}){_}/N[num]{W}<2>){_} 3 29_17 0
+Nov._16 (((S[X]{Y}\NP{Z}){Y}\(S[X]{Y}<1>\NP{Z}){Y}){_}/N[num]{W}<2>){_} 2 join_9 0
+will_8 ((S[dcl]{_}\NP{Y}<1>){_}/(S[b]{Z}<2>\NP{Y*}){Z}){_} 2 join_9 0
+will_8 ((S[dcl]{_}\NP{Y}<1>){_}/(S[b]{Z}<2>\NP{Y*}){Z}){_} 1 Vinken_2 0
+join_9 ((S[b]{_}\NP{Y}<1>){_}/NP{Z}<2>){_} 1 Vinken_2 0 ((S[dcl]{X}\NP{Y}<15>){X}/(S[b]{Z}<16>\NP{Y*}){Z}){X}
+<c> Pierre|NNP|N/N Vinken|NNP|N ,|,|, 61|CD|N/N years|NNS|N old|JJ|(S[adj]\NP)\NP ,|,|, will|MD|(S[dcl]\NP)/(S[b]\NP) join|VB|(S[b]\NP)/NP the|DT|NP[nb]/N board|NN|N as|IN|((S\NP)\(S\NP))/NP a|DT|NP[nb]/N nonexecutive|JJ|N/N director|NN|N Nov.|NNP|((S\NP)\(S\NP))/N[num] 29|CD|N[num] .|.|.
+       */
+      String depParse;
+
+      depParse = CCGBankDependencies.getDependenciesAsString(Arrays.asList(parse), sentenceNumber);
+      for (String line : depParse.split("\n")) {
+        if (!line.startsWith("#") && !line.trim().isEmpty()) {
+          result.append(line);
+          result.append("\n");  
+        }
+      }
+      result.append("<c>");
+      for (SyntaxTreeNodeLeaf word : parse.getWords()) {
+        result.append(" " + word.getWord() + "|" + (word.getPos() == null ? "" : word.getPos()) + "|" + word.getCategory());
+      }
+      result.append("\n");
+    }
+
   }
 }

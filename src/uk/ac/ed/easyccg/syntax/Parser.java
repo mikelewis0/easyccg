@@ -5,6 +5,8 @@ import java.io.IOException;
 import java.util.Iterator;
 import java.util.List;
 
+import com.google.common.collect.Multimap;
+
 import uk.ac.ed.easyccg.syntax.InputReader.InputToParser;
 import uk.ac.ed.easyccg.syntax.ParserAStar.SuperTaggingResults;
 
@@ -30,5 +32,13 @@ public interface Parser
   public abstract List<SyntaxTreeNode> parseSentence(SuperTaggingResults results, InputToParser input);
 
   public abstract List<SyntaxTreeNode> doParsing(InputToParser input);
+
+  List<SyntaxTreeNode> parse(SuperTaggingResults results, String line);
+
+  Multimap<Integer, Long> getSentenceLengthToParseTimeInNanos();
+
+  long getParsingTimeOnlyInMillis();
+
+  long getTaggingTimeOnlyInMillis();
 
 }

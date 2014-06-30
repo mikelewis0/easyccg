@@ -4,12 +4,15 @@ import java.io.File;
 import java.io.FilenameFilter;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.regex.Pattern;
 
 import no.uib.cipr.matrix.DenseMatrix;
 import no.uib.cipr.matrix.DenseVector;
@@ -17,6 +20,7 @@ import no.uib.cipr.matrix.Matrix;
 import no.uib.cipr.matrix.Vector;
 import uk.ac.ed.easyccg.syntax.InputReader.InputWord;
 import uk.ac.ed.easyccg.syntax.SyntaxTreeNode.SyntaxTreeNodeFactory;
+import uk.ac.ed.easyccg.syntax.SyntaxTreeNode.SyntaxTreeNodeLeaf;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -24,7 +28,7 @@ import com.google.common.collect.MinMaxPriorityQueue;
 import com.google.common.io.PatternFilenameFilter;
 import com.google.common.primitives.Doubles;
 
-public class TaggerEmbeddings implements Tagger
+public class TaggerEmbeddings extends Tagger
 {
   private final Matrix weightMatrix;
   private final Vector bias;
@@ -41,6 +45,7 @@ public class TaggerEmbeddings implements Tagger
    */
   private final int contextWindow = 3;
 
+  // Special words used in the embeddings tables.
   private final static String leftPad="*left_pad*";
   private final static String rightPad="*right_pad*";
   private final static String unknownLower="*unknown_lower*";
@@ -53,34 +58,59 @@ public class TaggerEmbeddings implements Tagger
   private final static String suffixPad="*suffix_pad*";
   private final static String unknownSuffix="*unknown_suffix*";
 
+  /**
+   * Indices for POS-tags, if using them as features.
+   */
+  private final Map<String, Integer> posFeatures;
+
+  /**
+   * Indices for specific words, if using them as features.
+   */
+  private final Map<String, Integer> lexicalFeatures;
+
   private final List<Vector> weightMatrixRows;
 
   /**
    * Number of supertags to consider for each word. Choosing 50 means it's effectively unpruned,
    * but saves us having to sort the complete list of categories.
    */
-  private final static int beam = 50;
-  
-  private final double beta;
+  private final int maxTagsPerWord;
 
+  /**
+   * Pruning parameter. Supertags whose probability is less than beta times the highest-probability
+   * supertag are ignored.
+   */
+  private final double beta;
   
   private final SyntaxTreeNodeFactory terminalFactory;
   private final Map<String, Collection<Integer>> tagDict;
 
 
-  public TaggerEmbeddings(File modelFolder, int maxSentenceLength, double beta) {
+  public TaggerEmbeddings(File modelFolder, int maxSentenceLength, double beta, int maxTagsPerWord) {
     try {
       FilenameFilter embeddingsFileFilter = new PatternFilenameFilter("embeddings.*");
 
+      // If we're using POS tags or lexical features, load l.
+      this.posFeatures = loadSparseFeatures(new File(modelFolder + "/postags"));     
+      this.lexicalFeatures = loadSparseFeatures(new File(modelFolder + "/frequentwords"));     
+      
+      // Load word embeddings.
       embeddingsFeatures = loadEmbeddings(true, modelFolder.listFiles(embeddingsFileFilter));
+      
+      // Load embeddings for capitalization and suffix features.
       discreteFeatures = new HashMap<String, double[]>();
       discreteFeatures.putAll(loadEmbeddings(false, new File(modelFolder, "capitals")));
       discreteFeatures.putAll(loadEmbeddings(false, new File(modelFolder, "suffix")));
       totalFeatures = 
         (embeddingsFeatures.get(unknownLower).length + 
             discreteFeatures.get(unknownSuffix).length + 
-            discreteFeatures.get(capsLower).length)*(2 * contextWindow + 1);
+            discreteFeatures.get(capsLower).length +
+            posFeatures.size()  + lexicalFeatures.size())       * (2 * contextWindow + 1);
+      
+      // Load the list of categories used by the model.
       lexicalCategories = loadCategories(new File(modelFolder, "categories"));
+      
+      // Load the weight matrix used by the classifier.
       weightMatrix = new DenseMatrix(lexicalCategories.size(), totalFeatures);
       loadMatrix(weightMatrix, new File(modelFolder, "classifier"));
 
@@ -95,40 +125,65 @@ public class TaggerEmbeddings implements Tagger
 
       bias = new DenseVector(lexicalCategories.size());
       this.beta = beta;
-
-      Map<Category, Integer> catToIndex = new HashMap<Category, Integer>();
+      this.maxTagsPerWord = maxTagsPerWord;
 
       int maxCategoryID = 0;
-      int index = 0;
       for (Category c : lexicalCategories) {
         maxCategoryID = Math.max(maxCategoryID, c.getID());
-        catToIndex.put(c, index);
-        index++;
       }
       
-      Map<String, Collection<Category>> dict = TagDict.readDict(modelFolder);
-      Map<String, Collection<Integer>> tagDict = new HashMap<String, Collection<Integer>>();
-      if (dict == null) {
-        dict = new HashMap<String, Collection<Category>>();
-        dict.put(TagDict.OTHER_WORDS, lexicalCategories);
-      }
-      for (Entry<String, Collection<Category>> entry : dict.entrySet()) {
-        List<Integer> catIndices = new ArrayList<Integer>(entry.getValue().size());
-        for (Category cat : entry.getValue()) {
-          catIndices.add(catToIndex.get(cat));
-        }
-        tagDict.put(entry.getKey(), ImmutableList.copyOf(catIndices));
-      }
-      this.tagDict = ImmutableMap.copyOf(tagDict);
-
+      this.tagDict = ImmutableMap.copyOf(loadTagDictionary(modelFolder));
       
       terminalFactory = new SyntaxTreeNodeFactory(maxSentenceLength, maxCategoryID);
       loadVector(bias, new File(modelFolder, "bias"));
 
     }
     catch (Exception e) {
-      throw new Error(e);
+      throw new RuntimeException(e);
     }
+  }
+
+  public Map<String, Collection<Integer>> loadTagDictionary(File modelFolder) throws IOException
+  {
+    Map<Category, Integer> catToIndex = new HashMap<Category, Integer>();
+
+    int index = 0;
+    for (Category c : lexicalCategories) {
+      catToIndex.put(c, index);
+      index++;
+    }
+    
+    // Load a tag dictionary
+    Map<String, Collection<Category>> dict = TagDict.readDict(modelFolder);
+    Map<String, Collection<Integer>> tagDict = new HashMap<String, Collection<Integer>>();
+    if (dict == null) {
+      dict = new HashMap<String, Collection<Category>>();
+      dict.put(TagDict.OTHER_WORDS, lexicalCategories);
+    }
+    for (Entry<String, Collection<Category>> entry : dict.entrySet()) {
+      List<Integer> catIndices = new ArrayList<Integer>(entry.getValue().size());
+      for (Category cat : entry.getValue()) {
+        catIndices.add(catToIndex.get(cat));
+      }
+      tagDict.put(entry.getKey(), ImmutableList.copyOf(catIndices));
+    }
+    return tagDict;
+  }
+
+  public Map<String, Integer> loadSparseFeatures(File posTagFeaturesFile) throws IOException
+  {
+    Map<String, Integer> posFeatures;
+    if (posTagFeaturesFile.exists()) {
+      posFeatures = new HashMap<String, Integer>();
+      for (String line : Util.readFile(posTagFeaturesFile)) {
+        posFeatures.put(line, posFeatures.size());
+      }
+      posFeatures = ImmutableMap.copyOf(posFeatures);
+    } else {
+      posFeatures = Collections.emptyMap();
+    }
+          
+    return posFeatures;
   }
 
   /**
@@ -176,14 +231,40 @@ public class TaggerEmbeddings implements Tagger
    * @see uk.ac.ed.easyccg.syntax.Tagger#tag(java.util.List)
    */
   @Override
-  public List<List<SyntaxTreeNode>> tag(List<InputWord> words) {
-    final List<List<SyntaxTreeNode>> result = new ArrayList<List<SyntaxTreeNode>>(words.size());
+  public List<List<SyntaxTreeNodeLeaf>> tag(List<InputWord> words) {
+    final List<List<SyntaxTreeNodeLeaf>> result = new ArrayList<List<SyntaxTreeNodeLeaf>>(words.size());
     final double[] vector = new double[totalFeatures];
     
     for (int wordIndex = 0; wordIndex < words.size(); wordIndex++) {
+      if (posFeatures.size() > 0 || lexicalFeatures.size() > 0) {
+        // If we're not using sparse features, all the old values will be over written anyway.
+        Arrays.fill(vector, 0.0);
+      }
+      
       int vectorIndex = 0;
       for (int sentencePosition = wordIndex - contextWindow; sentencePosition<= wordIndex+contextWindow; sentencePosition++) {
         vectorIndex = addToFeatureVector(vectorIndex, vector, sentencePosition, words);
+        
+        // If using lexical features, update the vector.
+        if (lexicalFeatures.size() > 0) {
+            if (sentencePosition >= 0 && sentencePosition < words.size())  {
+              Integer index = lexicalFeatures.get(words.get(sentencePosition).word);
+              if (index != null) {
+                vector[vectorIndex + index] = 1; 
+              }
+            }
+            vectorIndex = vectorIndex + lexicalFeatures.size();
+        }
+
+        // If using POS-tag features, update the vector.
+        if (posFeatures.size() > 0) {
+            if (sentencePosition >= 0 && sentencePosition < words.size())  {
+              vector[vectorIndex + posFeatures.get(words.get(sentencePosition).pos)] = 1; 
+            }
+
+            vectorIndex = vectorIndex + posFeatures.size();
+        }
+
       }
 
       result.add(getTagsForWord(new DenseVector(vector), words.get(wordIndex), wordIndex));
@@ -203,6 +284,7 @@ public class TaggerEmbeddings implements Tagger
     vectorIndex = addToVector(vectorIndex, vector, suffix);
     double[] caps = getCapitalization(words, sentencePosition);
     vectorIndex = addToVector(vectorIndex, vector, caps);
+    
     return vectorIndex;
   }
 
@@ -213,13 +295,21 @@ public class TaggerEmbeddings implements Tagger
     return index;
   }
 
+  /**
+   * 
+   * @param normalize If true, words are lower-cased with numbers replaced
+   * @param embeddingsFiles
+   * @return
+   * @throws IOException
+   */
   private Map<String, double[]> loadEmbeddings(boolean normalize, File... embeddingsFiles) throws IOException {
     Map<String, double[]> embeddingsMap = new HashMap<String, double[]>();
-    // Allow sharded input.
+    // Allow sharded input, by allowing the embeddings to be split across multiple files.
     for (File embeddingsFile : embeddingsFiles) {
       Iterator<String> lines = Util.readFileLineByLine(embeddingsFile);
       while (lines.hasNext()) {
         String line = lines.next();
+        // Lines have the format: word dim1 dim2 dim3 ...
         String word = line.substring(0, line.indexOf(" "));
         if (normalize) {
           word = normalize(word);
@@ -228,7 +318,7 @@ public class TaggerEmbeddings implements Tagger
         if (!embeddingsMap.containsKey(word)) {
           String[] fields = line.split(" ");
           double[] embeddings = new double[fields.length - 1];
-          for (int i = 1 ; i< fields.length; i++) {
+          for (int i = 1 ; i < fields.length; i++) {
             embeddings[i - 1] = Double.valueOf(fields[i]);
           }
           embeddingsMap.put(word, embeddings);
@@ -242,8 +332,9 @@ public class TaggerEmbeddings implements Tagger
   /**
    * Normalizes words by lower-casing and replacing numbers with '#'/
    */
+  private final static Pattern numbers = Pattern.compile("[0-9]");
   private String normalize(String word) {
-    word = word.toLowerCase().replaceAll("[0-9]", "#");
+    word = numbers.matcher(word.toLowerCase()).replaceAll("#");
     return word;
   }
 
@@ -258,11 +349,13 @@ public class TaggerEmbeddings implements Tagger
     if (index >= words.size()) return embeddingsFeatures.get(rightPad);
     String word = words.get(index).word;
 
+    word = translateBrackets(word);
+    
     double[] result = embeddingsFeatures.get(normalize(word));
     if (result == null) {
-      char c = word.charAt(0);
-      boolean isLower = 'a' <= c && c <= 'z';
-      boolean isUpper = 'A' <= c && c <= 'Z';
+      char firstCharacter = word.charAt(0);
+      boolean isLower = 'a' <= firstCharacter && firstCharacter <= 'z';
+      boolean isUpper = 'A' <= firstCharacter && firstCharacter <= 'Z';
       if (isLower) {
         return embeddingsFeatures.get(unknownLower);
       } else if (isUpper) {
@@ -272,6 +365,13 @@ public class TaggerEmbeddings implements Tagger
       }
     }
     return result;
+  }
+
+  private String translateBrackets(String word)
+  {
+    if (word.equalsIgnoreCase("-LRB-")) word = "(";
+    if (word.equalsIgnoreCase("-RRB-")) word = ")";
+    return word;
   }
 
   /**
@@ -285,7 +385,10 @@ public class TaggerEmbeddings implements Tagger
     if (index < 0 || index >= words.size()) {
       suffix = suffixPad;
     } else {
-      String word = words.get(index).word.toLowerCase();
+      String word = words.get(index).word;
+      
+      word = translateBrackets(word);
+
       if (word.length() > 1) { 
         suffix = (word.substring(word.length() - 2, word.length()));
       } else {
@@ -294,7 +397,7 @@ public class TaggerEmbeddings implements Tagger
       }
     }
 
-    double[] result = discreteFeatures.get(suffix);
+    double[] result = discreteFeatures.get(suffix.toLowerCase());
     if (result == null) {
       result = discreteFeatures.get(unknownSuffix);
     }
@@ -347,24 +450,25 @@ public class TaggerEmbeddings implements Tagger
    * @param wordIndex The position of the word in the sentence.
    * @return
    */
-  private List<SyntaxTreeNode> getTagsForWord(final Vector vector, final InputWord word, final int wordIndex)
+  private List<SyntaxTreeNodeLeaf> getTagsForWord(final Vector vector, final InputWord word, final int wordIndex)
   {
     double total = 0.0;
 
-    Collection<Integer> cats = tagDict.get(word.word);
-    if (cats == null) {
-      cats = tagDict.get(TagDict.OTHER_WORDS);
+    // If we're using a tag dictionary, consider those tags --- otherwise, try all tags.
+    Collection<Integer> possibleCategories = tagDict.get(word.word);
+    if (possibleCategories == null) {
+      possibleCategories = tagDict.get(TagDict.OTHER_WORDS);
     }
     
     double threshold = 0.0;
 
-    final int size = Math.min(beam, cats.size());
+    final int size = Math.min(maxTagsPerWord, possibleCategories.size());
     // Fixed length priority queue, used to sort candidate tags.
     MinMaxPriorityQueue<ScoredCategory> queue = MinMaxPriorityQueue.maximumSize(size).create();
 
     double bestScore = 0.0;
 
-    for (Integer cat : cats) {
+    for (Integer cat : possibleCategories) {
       double score = Math.exp(weightMatrixRows.get(cat).dot(vector) + bias.get(cat));
       if (score >= threshold) {
         queue.add(new ScoredCategory(cat, score));
@@ -372,6 +476,8 @@ public class TaggerEmbeddings implements Tagger
         if (score > bestScore) {
           bestScore = score;
           threshold = beta * bestScore;
+          
+          // Prune the queue of any categories whose score it too low.
           while (queue.peekLast().score < threshold) {
             queue.pollLast();
           }
@@ -381,7 +487,7 @@ public class TaggerEmbeddings implements Tagger
     }
     
     // Convert the queue into a sorted list of SyntaxTreeNode terminals.
-    List<SyntaxTreeNode> result = new ArrayList<SyntaxTreeNode>(queue.size());
+    List<SyntaxTreeNodeLeaf> result = new ArrayList<SyntaxTreeNodeLeaf>(queue.size());
     while (queue.size() > 0) {
       ScoredCategory cat = queue.poll();
       double probability = cat.score / total;

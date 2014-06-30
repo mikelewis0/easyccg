@@ -11,7 +11,7 @@ import uk.ac.ed.easyccg.syntax.Category.Slash;
 public abstract class Combinator
 {
   public enum RuleType {
-    FA, BA, FC, BX, GFC, GBX, CONJ, RP, NOISE, UNARY, LEXICON
+    FA, BA, FC, BX, GFC, GBX, CONJ, RP, LP, NOISE, UNARY, LEXICON
   }
   
   private Combinator(RuleType ruleType)
@@ -77,7 +77,7 @@ public abstract class Combinator
    * Makes sure wildcard features are correctly instantiated.
    * 
    * We want: S[X]/(S[X]\NP) and S[dcl]\NP to combine to S[dcl]. This is done by finding any wildcards that
-   * need to be matched between S[X]\NP and S[dcl]\NP, and applying the substition to S[dcl].
+   * need to be matched between S[X]\NP and S[dcl]\NP, and applying the substitution to S[dcl].
    */
   private static Category correctWildCardFeatures(Category toCorrect, Category match1, Category match2) {
     return toCorrect.doSubstitution(match1.getSubstitution(match2));
@@ -170,7 +170,7 @@ public abstract class Combinator
   private static class RemovePunctuationLeft extends Combinator {
     private RemovePunctuationLeft()
     {
-      super(RuleType.RP);
+      super(RuleType.LP);
     }
     
     @Override
