@@ -12,8 +12,8 @@ if [ -z "$CANDC" ]; then
     exit 1
 fi  
 
-java -jar easyccg.jar -m $MODEL -f $EVAL_FOLDER/gold.raw > $EVAL_FOLDER/$NAME.auto -l 200 -i tokenized
+java -jar easyccg.jar -m $MODEL -f $EVAL_FOLDER/gold.raw -l 200 -i tokenized --supertaggerbeam 0.00001 > $EVAL_FOLDER/$NAME.auto
 $CANDC/src/scripts/ccg/./get_deps_from_auto $EVAL_FOLDER/$NAME.auto $EVAL_FOLDER/$NAME.deps 
 sed -i -e 's/^$/<c>\n/' $EVAL_FOLDER/$NAME.deps
-$CANDC/src/scripts/ccg/./evaluate2 $EVAL_FOLDER/gold.stagged $EVAL_FOLDER/gold.deps $EVAL_FOLDER/$NAME.deps > $EVAL_FOLDER/$NAME.eval
+$CANDC/src/scripts/ccg/./evaluate2 -r $EVAL_FOLDER/gold.stagged $EVAL_FOLDER/gold.deps $EVAL_FOLDER/$NAME.deps > $EVAL_FOLDER/$NAME.eval
 grep lf $EVAL_FOLDER/$NAME.eval

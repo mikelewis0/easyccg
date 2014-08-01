@@ -12,6 +12,11 @@ function Features:normalize(word)
      return special
    end 
    
+   local lemma = self.lemmas[word]
+   if lemma then
+     word = lemma
+   end
+
    word = string.gsub(word, "[0-9]", "#")
    word = string.gsub(word, "\\/", "/")
    word = string.lower(word)
@@ -20,10 +25,17 @@ function Features:normalize(word)
 end
 
 
-function Features:fileToTable(path, minIndex, normalize)
+function Features:fileToTable(path, minIndex, normalize, errorIfFileNotFound)
    local file = io.open(path)
 
-   if not file then error("Unable to load file: " .. file) end
+   if file==nil then 
+     if errorIfFileNotFound then
+       error("Unable to load file: " .. path)
+     else
+       return 0, {}, {}
+     end
+   end
+
 
    local result = {}
    local reverse = {}
@@ -42,7 +54,7 @@ function Features:fileToTable(path, minIndex, normalize)
    return count - 1, result, reverse
 end
 
-function Features:__init(wordFilePath, suffixFilePath, categoryFilePath)
+function Features:__init(wordFilePath, lemmasFilePath, suffixFilePath, posFilePath, categoryFilePath, frequentWordFile)
 
    self.leftPaddingIndex = 1
    self.rightPaddingIndex = 2
@@ -59,15 +71,39 @@ function Features:__init(wordFilePath, suffixFilePath, categoryFilePath)
    self.specialWords["-LCB-"] = "("
    self.specialWords["-RCB-"] = ")"
 
-   self.numWords, self.wordToIndex, _ = self:fileToTable(wordFilePath, self.unknownLowerIndex, true)
-   self.numSuffixes, self.suffixToIndex, _ = self:fileToTable(suffixFilePath, self.unknownSuffixIndex + 1, false)
-   self.numCats, self.categoryToIndex, self.indexToCategory = self:fileToTable(categoryFilePath, 1, false)
+   self.numberOfFeatures = 3
+
+   self.lemmas = {}
+   if lemmasFilePath then
+     local lemmasFile = io.open(lemmasFilePath)
+     if lemmasFile then     
+       for line in lemmasFile:lines() do
+           local delim = string.find(line, ' ', 1, true)
+           local lemma = string.sub(line, delim + 1, string.len(line))
+           local word = string.sub(line, 1, delim - 1)
+           self.lemmas[word] = lemma
+       end
+     end
+   end
+
+   self.numPOS, self.posToIndex, _ = self:fileToTable(posFilePath, 1, false, false)  
+
+   self.numWords, self.wordToIndex, self.indexToWord = self:fileToTable(wordFilePath, self.unknownLowerIndex, true, true)
+   self.numSuffixes, self.suffixToIndex, _ = self:fileToTable(suffixFilePath, self.unknownSuffixIndex + 1, false, true)
+   self.numCats, self.categoryToIndex, self.indexToCategory = self:fileToTable(categoryFilePath, 1, false, true)
+
+   self.numberOfSpecificWordFeatures, self.frequentWordIndex, _ = self:fileToTable(frequentWordFile, 1, false, false)
    self.extraWords = 4
 end
 
-function Features:getFeatures(words, index, windowBackward, windowForward) 
+function Features:getNumberOfSparseFeatures() 
+  return self.numberOfSpecificWordFeatures + self.numPOS
+end
+
+function Features:getFeatures(words, posTags, index, windowBackward, windowForward) 
   window = (windowBackward + windowForward + 1)
-  inputLine = torch.Tensor(window * 3)
+  inputLine = torch.Tensor(window * (self.numberOfFeatures + self:getNumberOfSparseFeatures()))
+  inputLine:fill(0)
   j = 1
   for i = index - windowBackward, index + windowForward do
     if i < 1 then
@@ -86,6 +122,35 @@ function Features:getFeatures(words, index, windowBackward, windowForward)
     end
     j = j + 1
   end
+
+  
+  -- Add on one-hot features.
+  --TODO
+  j = (3 * window) + 1
+  if (self.numberOfSpecificWordFeatures > 0) then
+    for i = index - windowBackward, index + windowForward do
+      if i > 0 and words[i] ~= nil then
+         --Words are ordered by frequency, except for some special words at the start. Include a feature if the word is one of the N most frequent words.
+         local wordIndex = self.frequentWordIndex[words[i]]
+         if wordIndex then
+           inputLine[j + wordIndex - 1] = 1
+         end
+      end
+      j = j + self.numberOfSpecificWordFeatures
+    end
+  end
+
+  if (self.numPOS > 0) then
+    for i = index - windowBackward, index + windowForward do
+      if i > 0 and posTags[i] ~= nil then
+
+        posIndex = self.posToIndex[posTags[i]]
+        inputLine[j + posIndex - 1] = 1
+      end
+      j = j + self.numPOS
+    end
+  end
+
   return inputLine
 end
 
@@ -129,6 +194,11 @@ function Features:getCategoryForIndex(catIndex)
   return result
 end
 
+function Features:getWordForIndex(wordIndex) 
+  local result = self.indexToWord[wordIndex]
+  return result
+end
+
 
 function Features:getSuffix(word) 
   length = string.len(word)
@@ -149,11 +219,9 @@ end
 
 function Features:getCapitalized(word) 
   local i = string.find(word, "^%u");
---  if word:gsub("^%l", string.lower) == word then
   if i ~= nil then
     return 3
   else 
-    --local j = string.find(word, "^%u");
     return 2
   end
 end

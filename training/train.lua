@@ -11,7 +11,7 @@ function Train:loadDataset(path, features, windowBackward, windowForward, includ
   local lineNum = 1;
   local size = 0;
    for line in file:lines() do 
-    if lineNum > 3 then
+    if lineNum > 3 or (line ~= '' and string.sub(line, 1, 1) ~= '#') then
      for instance in string.gmatch(line, "[^ ]+") do
        size = size + 1
      end
@@ -26,16 +26,17 @@ function Train:loadDataset(path, features, windowBackward, windowForward, includ
   local index = 0
   local window = windowBackward + windowForward + 1
 
-  local inputData = torch.Tensor(size, window * 3)
+  local inputData = torch.Tensor(size, window * (3 + features:getNumberOfSparseFeatures()))
   local targetData = torch.IntStorage(size)
 
   local lineNum = 1;
    for line in file:lines() do 
-    if lineNum > 3 then
+    if lineNum > 3 or (line ~= '' and string.sub(line, 1, 1) ~= '#') then
 
      local numWords = 0
      local words = {}
      local cats = {}
+     local posTags = {}
      for instance in string.gmatch(line, "[^ ]+") do 
        numWords = numWords + 1
 
@@ -43,8 +44,15 @@ function Train:loadDataset(path, features, windowBackward, windowForward, includ
        
        if (delim1) then
          local delim2 = string.find(instance, '|', delim1 + 1, true)
-         cats[numWords] = string.sub(instance, delim2 + 1, string.len(instance))
+
          words[numWords] = string.sub(instance, 1, delim1 - 1)
+
+         if (delim2) then
+           posTags[numWords] = string.sub(instance, delim1 + 1, delim2 - 1)
+           cats[numWords] = string.sub(instance, delim2 + 1, string.len(instance))
+         else
+           posTags[numWords] = string.sub(instance, delim1 + 1, string.len(instance))
+         end
        else
          -- No training example provided
          cats[numWords] = "*NO_CATEGORY*"
@@ -55,8 +63,7 @@ function Train:loadDataset(path, features, windowBackward, windowForward, includ
      
      for i = 1,numWords do
         
-        local input = features:getFeatures(words, i, windowBackward, windowForward);
-        --local newInput = nn.SplitTable(1):forward(nn.Reshape(3,window):forward(input))
+        local input = features:getFeatures(words, posTags, i, windowBackward, windowForward);
         local label = features:getCategoryIndex(cats[i])
 
         if label > 0 or (includeRareCategories) then
@@ -71,7 +78,7 @@ function Train:loadDataset(path, features, windowBackward, windowForward, includ
           targetData[index] = label
         end      
      end
-
+else
 
     end
     lineNum = lineNum + 1
@@ -119,18 +126,19 @@ end
 
 
 
-function Train:trainModel(trainFile, validationFile, embeddingsFolder, features, windowBackward, windowForward, hiddenSize, name)
+function Train:trainModel(trainFile, validationAutoFile, validationGoldFile, embeddingsFolder, features, windowBackward, windowForward, hiddenSize, name)
 
   wordTable, embeddingsSize = self:loadEmbeddings(embeddingsFolder .. '/embeddings.vectors')
   k = 5
   window = windowBackward +  windowForward + 1
-  tableSize = (embeddingsSize + k + k) * window
+  tableSize = (embeddingsSize + k + k + features:getNumberOfSparseFeatures()) * window
   print ("Window Size  = " .. window)
   print ("Embeddings Size  = " .. embeddingsSize)
   print ("Lookup Table Size  = " .. tableSize)
   print ("Categories Size  = " .. features.numCats)
   print ("Suffixes Size  = " .. features.numSuffixes)
   print ("Vocabulary Size  = " .. features.numWords)
+  print ("Sparse Features Size  = " .. features:getNumberOfSparseFeatures())
 
   capsTable = nn.LookupTable(window, k)
   capsTable:reset(0.1)
@@ -140,6 +148,13 @@ function Train:trainModel(trainFile, validationFile, embeddingsFolder, features,
   pt:add(wordTable)
   pt:add(suffixTable)
   pt:add(capsTable)
+
+  -- Assume we always have 3 lookup-table features (word embeddings, suffixes and capitalization), 
+  -- but allow additional features (such as word, POS and Brown clusters) as one-hot vectors.
+  if features:getNumberOfSparseFeatures() > 0 then
+    pt:add(nn.Identity())
+  end
+
   jt = nn.JoinTable(2)
   rs2 = nn.Reshape(tableSize)
   mlp = nn.Sequential()
@@ -170,14 +185,20 @@ function Train:trainModel(trainFile, validationFile, embeddingsFolder, features,
   os.execute("mkdir " .. folder)
 
   print ("Loading dev set")
-  validation = self:loadDataset(validationFile, features, windowBackward, windowForward, true)
+  -- Hacky way of merging automatic POS tags with Gold supertags
+  local validationAuto = self:loadDataset(validationAutoFile, features, windowBackward, windowForward, true)
+  local validationGold = self:loadDataset(validationGoldFile, features, windowBackward, windowForward, true)
+  local validation = {validationAuto[1], validationGold[2]}
+  function validation:size() return (validationAuto:size()) end
+  print ("Dev examples: " .. validation:size())
+
   print ("Loading train set")
   dataset = self:loadDataset(trainFile, features, windowBackward, windowForward, false)
   print ("Done")
 
 
   criterion = nn.ClassNLLCriterion()
-  trainer = nn.SGD(mlp, criterion, folder)
+  trainer = nn.SGD(mlp, criterion, folder, 3, window)
   trainer.learningRate = 0.01
   trainer.maxIteration = 25
   trainer:train(dataset, validation)

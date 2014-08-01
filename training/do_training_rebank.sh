@@ -28,14 +28,14 @@ if [[ ! -f $DEV_DATA/gold.stagged ]]; then
     exit 1;
 fi
 
-if [[ ! -f $TRAINING_DATA/seenRules ]]; then
-    echo "Missing file: $TRAINING_DATA/seenRules"
-    echo "This file should contain all pairs of categories that combine in the labelled data. If not available, add a \"-s\" flag to the parser command in do_experiments.sh"
+#if [[ ! -f $TRAINING_DATA/seenRules ]]; then
+#    echo "Missing file: $TRAINING_DATA/seenRules"
+#    echo "This file should contain all pairs of categories that combine in the labelled data. If not available, add a \"-s\" flag to the parser command in do_experiments.sh"
 #    exit 1;
-fi
+#fi
 
 # Do training. The supertagging model is saved in: $EMBEDDINGS/train.$NAME
-./train.sh $EMBEDDINGS 0 3 3 $TRAINING_DATA $DEV_DATA $NAME
+./train.sh $EMBEDDINGS 0 3 3 $TRAINING_DATA/gold.stagged $DEV_DATA/gold.stagged $NAME
 
 # Convert the output to a parser model, saved in: $EMBEDDINGS/model.$NAME
 mkdir $PARSING_MODEL
@@ -43,9 +43,6 @@ cp unaryRules $PARSING_MODEL
 cp $TRAINING_DATA/seenRules $PARSING_MODEL
 cp $TRAINING_FOLDER/categories $PARSING_MODEL
 cp $TRAINING_FOLDER/suffixes $PARSING_MODEL
-cp $TRAINING_FOLDER/postags $PARSING_MODEL
-cp $TRAINING_FOLDER/frequentwords $PARSING_MODEL
-
 $TORCH dump_model.lua $EMBEDDINGS $TRAINING_FOLDER $PARSING_MODEL
 
 echo "Model created in: $PARSING_MODEL"

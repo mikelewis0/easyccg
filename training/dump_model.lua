@@ -10,13 +10,13 @@ output=arg[3];
 modelFolder=arg[2] --embeddingsFolder .. '/' .. name
 
 mlp = torch.load(modelFolder .. '/bestModel')
-features = nn.Features(embeddingsFolder .. '/embeddings.words', modelFolder .. '/suffixes', modelFolder .. '/categories')
+features = nn.Features(embeddingsFolder .. '/embeddings.words', embeddingsFolder .. '/lemmas', modelFolder .. '/suffixes', modelFolder .. '/postags', modelFolder .. '/categories', modelFolder .. '/frequentwords')
 wordTable = mlp:get(1):get(1).weight
 
 suffixTable = mlp:get(1):get(2).weight
 capsTable = mlp:get(1):get(3).weight
+
 -- CLASSIFIER
---local file = io.open(output . "classifier", "w")
 io.output(output .. "/classifier")
 
   linear = mlp:get(4)

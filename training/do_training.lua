@@ -7,16 +7,20 @@ require 'train'
 io.stdout:setvbuf("no") 
 
 trainFile=arg[1];
-devFile=arg[2];
-embeddingsFolder=arg[3];
-hidden=tonumber(arg[4]);
-windowBackward=tonumber(arg[5]);
-windowForward=tonumber(arg[6]);
-name=arg[7]
+devAutoFile=arg[2];
+devGoldFile=arg[3];
+embeddingsFolder=arg[4];
+hidden=tonumber(arg[5]);
+windowBackward=tonumber(arg[6]);
+windowForward=tonumber(arg[7]);
+name=arg[8]
+numberOfSpecificWordFeatures=250 --arg[8]
 
 modelFolder=embeddingsFolder .. '/train.' .. name
 
-features = nn.Features(embeddingsFolder .. '/embeddings.words', modelFolder .. '/suffixes', modelFolder .. '/categories')
+features = nn.Features(embeddingsFolder .. '/embeddings.words', nil, modelFolder .. '/suffixes', modelFolder .. '/postags', 
+                       modelFolder .. '/categories', modelFolder .. '/frequentwords')
+
 
 train = nn.Train()
-train:trainModel(trainFile, devFile, embeddingsFolder, features, windowBackward, windowForward, hidden, name)
+train:trainModel(trainFile, devAutoFile, devGoldFile, embeddingsFolder, features, windowBackward, windowForward, hidden, name)

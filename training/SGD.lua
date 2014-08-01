@@ -1,6 +1,6 @@
 local SGD = torch.class('nn.SGD')
 
-function SGD:__init(module, criterion, folder)
+function SGD:__init(module, criterion, folder, numberOfLookupTables)
    self.learningRate = 0.01
    self.learningRateDecay = 0
    self.maxIteration = 25
@@ -10,8 +10,8 @@ function SGD:__init(module, criterion, folder)
    self.folder = folder
    self.log=io.open(folder .. '/log',"w")
    self.log:setvbuf("no") 
-
-
+   self.numberOfLookupTables = numberOfLookupTables
+   self.window = window
 end
 
 
@@ -20,8 +20,8 @@ function SGD:eval(validation)
        for t = 1,validation:size() do
          local input = validation[1][t]
          local target = validation[2][t]
-         input = nn.SplitTable(1):forward(nn.Reshape(3,window):forward(input))
-         output = self.module:forward(input)
+         local newInput = self:processInput(input)
+         output = self.module:forward(newInput)
 
          outputLabel = 1;
          outputValue = output[1];
@@ -56,6 +56,23 @@ function SGD:logLikelihood(validation)
       return result
 end
 
+function SGD:processInput(input)
+  -- Input is a big one-dimensional tensor.
+  -- The first window*numberOfLookupTables inputs are indices into torch lookup-tables, with trainable parameters.
+  -- The remaining input is used directly by the classification layer.
+  -- We have to do it in this painful way because Lua can't cope with lots of table objects.
+  local lookupTableInput = input:narrow(1,1,self.numberOfLookupTables * window)
+  local newInput = nn.SplitTable(1):forward(nn.Reshape(self.numberOfLookupTables,window):forward(lookupTableInput))
+
+  local lengthOfIndexInput = input:size(1) - (self.numberOfLookupTables * window)
+  if lengthOfIndexInput > 0 then
+    -- Twiddle around with the shape of the rest of the input, to make it look like Torch expects.
+    newInput[4] = nn.Reshape(window, lengthOfIndexInput / window):forward(input:narrow(1,self.numberOfLookupTables * window + 1, lengthOfIndexInput))
+  end
+
+  return newInput
+end
+
 function SGD:train(dataset, validation)
    self.log:write("# SGD: training" .. '\n')   
    local iteration = 1
@@ -84,11 +101,12 @@ function SGD:train(dataset, validation)
          local input = dataset[1][shuffledIndices[t]]
          local target = dataset[2][shuffledIndices[t]]
 
-         input = nn.SplitTable(1):forward(nn.Reshape(3,window):forward(input))
-         currentError = currentError + criterion:forward(module:forward(input), target)
+         local newInput = self:processInput(input)
 
-         module:updateGradInput(input, criterion:updateGradInput(module.output, target))
-         module:accUpdateGradParameters(input, criterion.gradInput, currentLearningRate)
+         currentError = currentError + criterion:forward(module:forward(newInput), target)
+
+         module:updateGradInput(newInput, criterion:updateGradInput(module.output, target))
+         module:accUpdateGradParameters(newInput, criterion.gradInput, currentLearningRate)
 
          if self.hookExample then
             self.hookExample(self, example)
