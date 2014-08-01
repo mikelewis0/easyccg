@@ -45,6 +45,10 @@ training data from "experiments/wsj_train/gold.stagged" and development data fro
 "experiments/wsj_dev/gold.stagged". All being well, it will output a labelled dependency
 score on the development data.
 
+To use lexical features (not recommended), add a file called frequentWords to the model
+folder before training, containing one word per line. These words will be used as additional
+features. I found that this didn't help accuracy, and made things much slower.
+
 To evaluate on test data, use something like:
   ./do_experiments.sh turian/my_model experiments/wsj23/ my_model
 
