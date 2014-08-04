@@ -18,4 +18,4 @@ fi
 cat $TRAINING_FILE | grep -v "^#.*" | grep -v "^$" | tr -s " " "\n" | cut -d "|" -f 1 | awk '{print "_"tolower($1)}' | grep -o ..$ | sort | uniq > $FOLDER/suffixes
 
 # Train the model
-$TORCH do_training.lua $TRAINING_DATA/gold.stagged $DEV_DATA/candc.pos $DEV_DATA/gold.stagged $1 $2 $3 $4 $7
+$TORCH do_training.lua $TRAINING_DATA/gold.stagged $DEV_DATA/gold.stagged $1 $2 $3 $4 $7
