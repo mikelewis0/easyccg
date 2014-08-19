@@ -3,6 +3,8 @@ easyccg
 
 EasyCCG is a CCG parser created by Mike Lewis.
 
+If you use EasyCCG in your research, please cite the following paper: A* CCG Parsing with a Supertag-factored Model, Mike Lewis and Mark Steedman, EMNLP 2014
+
 Pre-trained models are available from: https://drive.google.com/#folders/0B7AY6PGZ8lc-NGVOcUFXNU5VWXc
 To train new models, follow the instructions in training/README
 
