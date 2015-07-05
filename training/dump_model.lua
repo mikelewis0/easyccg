@@ -92,14 +92,14 @@ io.write("*upper_case*")
 io.output(output .. "/embeddings")
 io.write("*unknown_lower*")
   embeddings = wordTable[features.unknownLowerIndex]
-  for i = 1,50 do
+  for i = 1,embeddings:size()[1] do
     io.write(' ' .. embeddings[i])
   end
   io.write('\n')
 
 io.write("*unknown_upper*")
   embeddings = wordTable[features.unknownUpperIndex]
-  for i = 1,50 do
+  for i = 1,embeddings:size()[1] do
     io.write(' ' .. embeddings[i])
   end
   io.write('\n')
@@ -107,21 +107,21 @@ io.write("*unknown_upper*")
 
 io.write("*unknown_special*")
   embeddings = wordTable[features.specialCharIndex]
-  for i = 1,50 do
+  for i = 1,embeddings:size()[1] do
     io.write(' ' .. embeddings[i])
   end
   io.write('\n')
 
 io.write("*left_pad*")
   embeddings = wordTable[features.leftPaddingIndex]
-  for i = 1,50 do
+  for i = 1,embeddings:size()[1] do
     io.write(' ' .. embeddings[i])
   end
   io.write('\n')
 
 io.write("*right_pad*")
   embeddings = wordTable[features.rightPaddingIndex]
-  for i = 1,50 do
+  for i = 1,embeddings:size()[1] do
     io.write(' ' .. embeddings[i])
   end
   io.write('\n')
@@ -129,7 +129,7 @@ io.write("*right_pad*")
 for word,index in pairs(features.wordToIndex) do 
   io.write(word)
   embeddings = wordTable[index]
-  for i = 1,50 do
+  for i = 1,embeddings:size()[1] do
     io.write(' ' .. embeddings[i])
   end
   io.write('\n')
