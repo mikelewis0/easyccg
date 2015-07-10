@@ -55,7 +55,7 @@ if [ -z "$CANDC" ]; then
     exit 1
 fi  
 
-if [[ ! -f $DEV_DATA/gold.stagged ]]; then
+if [[ ! -f $DEV_DATA/gold.deps ]]; then
     echo "Missing gold-standard dependencies file: $DEV_DATA/gold.deps"
     exit 1;
 else
