@@ -55,7 +55,7 @@ public class EasyCCG
     @Option(shortName="i", defaultValue="tokenized", description = "(Optional) Input Format: one of \"tokenized\", \"POStagged\", \"POSandNERtagged\", \"gold\", \"deps\" or \"supertagged\"")
     String getInputFormat();
 
-    @Option(shortName="o", description = "Output Format: one of \"ccgbank\", \"html\", or \"prolog\"", defaultValue="ccgbank")
+    @Option(shortName="o", description = "Output Format: one of \"ccgbank\", \"html\", \"prolog\", or \"boxer\"", defaultValue="ccgbank")
     String getOutputFormat();
 
     @Option(shortName="l", defaultValue="70", description = "(Optional) Maximum length of sentences in words. Defaults to 70.")
@@ -106,7 +106,8 @@ public class EasyCCG
     CCGBANK(ParsePrinter.CCGBANK_PRINTER), 
     HTML(ParsePrinter.HTML_PRINTER), 
     SUPERTAGS(ParsePrinter.SUPERTAG_PRINTER),
-    PROLOG(ParsePrinter.PROLOG_PRINTER), 
+    PROLOG(ParsePrinter.PROLOG_PRINTER),
+    BOXER(ParsePrinter.BOXER_PRINTER),
     EXTENDED(ParsePrinter.EXTENDED_CCGBANK_PRINTER), 
     DEPS(new ParsePrinter.DependenciesPrinter());
     
