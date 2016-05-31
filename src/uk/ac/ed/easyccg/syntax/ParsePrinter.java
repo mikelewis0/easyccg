@@ -28,8 +28,9 @@ public abstract class ParsePrinter
   public String print(List<SyntaxTreeNode> parses, int id)
   {
     StringBuilder result = new StringBuilder();
-
-
+    if (id == 1) {
+    	printFileHeader(result);
+    }
 
     if (parses == null) {
       if (id > -1) printHeader(id, result);
@@ -54,6 +55,7 @@ public abstract class ParsePrinter
 
   public String print(SyntaxTreeNode entry, int id) {
     StringBuilder result = new StringBuilder();
+
     if (id > -1) printHeader(id, result);
 
     if (entry == null) {
@@ -512,7 +514,6 @@ w(2, 3, 'cake', 'cake', 'NN', 'I-NP', 'O', 'N').
 	    @Override
 	    void printParse(SyntaxTreeNode parse, int sentenceNumber, StringBuilder result)
 	    {
-	      printFileHeader(result);
 	      printDerivation(parse, sentenceNumber, result);
 	      result.append("\n");
 	    }
