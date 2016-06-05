@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+import uk.ac.ed.easyccg.lemmatizer.Lemmatizer;
 import uk.ac.ed.easyccg.lemmatizer.MorphaStemmer;
 import uk.ac.ed.easyccg.syntax.Combinator.RuleType;
 import uk.ac.ed.easyccg.syntax.SyntaxTreeNode.SyntaxTreeNodeBinary;
@@ -19,6 +20,7 @@ public abstract class ParsePrinter
   public final static ParsePrinter CCGBANK_PRINTER = new CCGBankPrinter();
   public final static ParsePrinter HTML_PRINTER = new HTMLPrinter();
   public final static ParsePrinter PROLOG_PRINTER = new PrologPrinter();
+  public final static ParsePrinter BOXER_PRINTER = new BoxerPrinter();  
   public final static ParsePrinter EXTENDED_CCGBANK_PRINTER = new ExtendedCCGBankPrinter();
   public final static ParsePrinter SUPERTAG_PRINTER = new SupertagPrinter();
 
@@ -26,8 +28,9 @@ public abstract class ParsePrinter
   public String print(List<SyntaxTreeNode> parses, int id)
   {
     StringBuilder result = new StringBuilder();
-
-
+    if (id == 1) {
+    	printFileHeader(result);
+    }
 
     if (parses == null) {
       if (id > -1) printHeader(id, result);
@@ -52,6 +55,7 @@ public abstract class ParsePrinter
 
   public String print(SyntaxTreeNode entry, int id) {
     StringBuilder result = new StringBuilder();
+
     if (id > -1) printHeader(id, result);
 
     if (entry == null) {
@@ -462,6 +466,161 @@ w(2, 3, 'cake', 'cake', 'NN', 'I-NP', 'O', 'N').
     }
 
   }
+
+  public static class BoxerPrinter extends ParsePrinter {	    
+	    private static String getRuleName(RuleType combinator) {
+	      // fa ba fc bx gfc gbx  conj
+	      switch (combinator) 
+	      {
+	      case FA : return "fa";
+	      case BA : return "ba";
+	      case FC : return "fc";
+	      case BX : return "bxc";
+	      case CONJ : return "conj";
+	      case RP : return "rp";
+	      case LP : return "lp";
+	      case GFC : return "gfc";
+	      case GBX : return "gbxc";
+	      }
+	      
+	      throw new RuntimeException("Unknown rule type: " + combinator);
+	    }
+	    
+	    @Override
+	    void printFileHeader(StringBuilder result)
+	    {
+	        result.append(":- op(601, xfx, (/)).\n" + 
+	          		":- op(601, xfx, (\\)).\n" + 
+	          		":- multifile ccg/2, id/2.\n" + 
+	          		":- discontiguous ccg/2, id/2.\n" + 
+	          		"\n");
+	        }
+	    
+	    @Override
+	    void printFailure(StringBuilder result)
+	    {
+	    }
+
+	    @Override
+	    void printHeader(int id, StringBuilder result)
+	    {
+	    }
+
+	    @Override
+	    void printFooter(StringBuilder result)
+	    {
+	    }
+
+	    @Override
+	    void printParse(SyntaxTreeNode parse, int sentenceNumber, StringBuilder result)
+	    {
+	      printDerivation(parse, sentenceNumber, result);
+	      result.append("\n");
+	    }
+	    
+	    void printTerminal(SyntaxTreeNodeLeaf word, StringBuilder result) {
+	    	String featureList = buildFeatureList(word);
+	    	
+	    	String cat = word.getCategory().toString().toLowerCase();
+	        cat = cat.replaceAll("\\[([a-z]+)\\]", ":$1");
+	    	if (cat.equals(".")) {
+	    		cat = "period";
+	    	}
+	    	
+	    	result.append("t(" + cat + ", '" + escape(word.getWord()) + "', " + featureList + ")");
+	    }
+	    
+	    private String buildFeatureList(SyntaxTreeNodeLeaf word) {
+	    	String featureList = "[";
+	    	
+	    	// POS
+	    	String POS = word.getPos();
+	    	if (POS != null) {
+	    		featureList = featureList + "POS:'" + POS + "', ";
+	    	}
+	    	else { POS = ""; }
+	    	
+	    	// NER
+	    	if (word.getNER() != null) {
+	    		featureList = featureList + ", namex:'" + word.getNER() + "'";
+	    	}	    	
+	    	
+	    	// Lemma
+	    	featureList = featureList + "lemma:'" + Lemmatizer.lemmatize(escape(word.getWord()), POS) + "'";  	
+	    	featureList = featureList + "]";
+	    	return featureList;
+	    }
+	    
+	    // adds an escape character before single quotes
+	    private String escape(String string) {
+	    	string = string.replace("'", "\\'");
+	    	return string;
+	    }
+
+	    private void printDerivation(SyntaxTreeNode parse, int id, StringBuilder result)
+	    {
+	      result.append("ccg(" + id);
+	      parse.accept(new DerivationPrinter(result, id));
+	      result.append(").\n");
+	    }
+
+	    private class DerivationPrinter extends ParsePrinterVisitor {
+	      int currentIndent = 1;
+	      int wordNumber = 1;
+	      final int sentenceNumber;
+	      DerivationPrinter(StringBuilder result, int sentenceNumber) {
+	        super(result);
+	        this.sentenceNumber = sentenceNumber;
+	      }
+	      
+	      @Override
+	      public void visit(SyntaxTreeNodeBinary node)
+	      {
+	        // ba('S[dcl]',
+	        result.append(",\n");
+	        printIndent(currentIndent);
+	        String cat = node.getCategory().toString().toLowerCase();
+	        cat = cat.replaceAll("\\[([a-z]+)\\]", ":$1");
+	        result.append(getRuleName(node.getRuleType()) + "(" + cat);
+	        currentIndent++;    
+	        node.leftChild.accept(this);
+	        node.rightChild.accept(this);
+	        result.append(")");
+	        currentIndent--;
+	      }
+
+	      @Override
+	      public void visit(SyntaxTreeNodeUnary node)
+	      {
+	        // lx('N','NP',
+	        result.append(",\n");
+	        printIndent(currentIndent);
+	        String cat = node.getCategory().toString().toLowerCase();
+	        cat = cat.replaceAll("\\[([a-z]+)\\]", ":$1");
+	        String cat_c = node.child.getCategory().toString().toLowerCase();
+	        cat_c = cat_c.replaceAll("\\[([a-z]+)\\]", ":$1");
+	        result.append("lx(" + cat + ", " + cat_c);
+	        currentIndent++;        
+	        node.child.accept(this);
+	        result.append(")");
+	        currentIndent--;
+	      }
+	      
+	      @Override
+	      public void visit(SyntaxTreeNodeLeaf node)
+	      {
+	        result.append(",\n");
+	        printIndent(currentIndent);
+	        printTerminal(node,result);
+	        wordNumber++;
+	      }
+	      private void printIndent(int currentIndent)
+	      {
+	        result.append(Strings.repeat(" ", currentIndent));
+	      }
+	    }
+
+	  }
 
   static String getUnaryRuleName(Category initial, Category result) {
     if ((Category.NP.matches(initial) || Category.PP.matches(initial)) && result.isTypeRaised()) {
