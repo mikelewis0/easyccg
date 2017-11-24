@@ -15,4 +15,16 @@
             <zipfileset excludes="META-INF/*.SF" src="lib/edu.mit.jwi_2.3.0.jar"/>
         </jar>
     </target>
+
+    <target name="compile">
+        <javac srcdir="src" destdir="bin" includes="**/*.java" target="1.8">
+            <classpath refid="classpath.base" />
+        </javac>
+    </target>
+
+    <path id="classpath.base">
+        <fileset dir="lib">
+            <include name="**/*.jar" />
+        </fileset>
+    </path>
 </project>
