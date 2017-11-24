@@ -1,0 +1,3 @@
+#!/bin/bash
+
+java -cp "bin:lib/jewelcli-0.7.6.jar:lib/edu.mit.jwi_2.3.0.jar:lib/guava-15.0.jar:lib/mtj-1.0-snapshot.jar" uk.ac.ed.easyccg.main.EasyCCG $@
