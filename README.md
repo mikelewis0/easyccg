@@ -34,13 +34,29 @@ java -jar easyccg.jar --model model
 Read sentences from a file rather than from standard input.
 
 ~~~bash
-java -jar easyccg.jar -m model -f input
+java -jar easyccg.jar -m model -f file
 ~~~
 
 **Notes:**
 
 - The value for the `-f` option must be a text file with sentences separated by newlines
 - The long form of `-f` is `--inputFile`
+
+
+### Output Formats
+
+~~~bash
+java -jar easyccg.jar -m model -f file -o format
+~~~
+
+`format` must be one of:
+
+- `ccgbank` (default)
+- `html`
+- `supertags`
+- `deps`
+- `extended` (requires `-i POSandNERtagged`)
+- `prolog` (requires `-i POSandNERtagged`)
 
 
 ### Help
@@ -76,3 +92,37 @@ To get Boxer-compatible Prolog output, use:
 ~~~bash
 echo "parse me" | candc/bin/pos --model candc_models/pos | candc/bin/ner -model candc_models/ner -ofmt "%w|%p|%n \n" | java -jar easyccg.jar --model model -i POSandNERtagged -o prolog -r S[dcl]
 ~~~
+
+## Compilation Workflow
+
+If you don't use Eclipse or another IDE, but want to compile and run manually on the command line, you can follow these instructions:
+
+### Compile Source files
+
+~~~bash
+ant compile
+~~~
+
+### Run Main Class
+
+~~~bash
+./javaw -m model -f file
+~~~
+
+The `javaw` wrapper script allows to run the main class without creating a JAR file first.
+
+### Create JAR File
+
+~~~bash
+ant create_run_jar
+~~~
+
+Note that this does **not** compile the source files.
+
+### Run JAR File
+
+~~~bash
+java -jar easyccg.jar -m model -f file
+~~~
+
+This results in the same as [Run Main Class](#run-main-class).
