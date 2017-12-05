@@ -118,45 +118,47 @@ public class EasyCCG
 
   public static void main(String[] args) throws IOException, ArgumentValidationException, InterruptedException {
 
-    CommandLineArguments commandLineOptions = CliFactory.parseArguments(CommandLineArguments.class, args);
-    InputFormat input = InputFormat.valueOf(commandLineOptions.getInputFormat().toUpperCase());
+    CommandLineArguments opts = CliFactory.parseArguments(CommandLineArguments.class, args);
+    InputFormat input = InputFormat.valueOf(opts.getInputFormat().toUpperCase());
 
-    if (commandLineOptions.getMakeTagDict()) {
-      InputReader reader = InputReader.make(input, new SyntaxTreeNodeFactory(commandLineOptions.getMaxLength(), 0));
-      Map<String, Collection<Category>> tagDict = TagDict.makeDict(reader.readFile(commandLineOptions.getInputFile()));
-      TagDict.writeTagDict(tagDict, commandLineOptions.getModel());
+    if (opts.getMakeTagDict()) {
+      InputReader reader = InputReader.make(input, new SyntaxTreeNodeFactory(opts.getMaxLength(), 0));
+      Map<String, Collection<Category>> tagDict = TagDict.makeDict(reader.readFile(opts.getInputFile()));
+      TagDict.writeTagDict(tagDict, opts.getModel());
       System.exit(0);
     }
 
-    if (!commandLineOptions.getModel().exists()) throw new InputMismatchException("Couldn't load model from from: " + commandLineOptions.getModel());
+    if (!opts.getModel().exists()) throw new InputMismatchException("Couldn't load model from from: " + opts.getModel());
+
     System.err.println("Loading model...");
 
     final Parser parser = new ParserAStar(
-        new TaggerEmbeddings(commandLineOptions.getModel(), commandLineOptions.getMaxLength(), commandLineOptions.getSupertaggerbeam(), commandLineOptions.getMaxTagsPerWord()), 
-        commandLineOptions.getMaxLength(),
-        commandLineOptions.getNbest(),
-        commandLineOptions.getNbestbeam(),
+        new TaggerEmbeddings(opts.getModel(), opts.getMaxLength(), opts.getSupertaggerbeam(), opts.getMaxTagsPerWord()), 
+        opts.getMaxLength(),
+        opts.getNbest(),
+        opts.getNbestbeam(),
         input,
-        commandLineOptions.getRootCategories(),
-        new File(commandLineOptions.getModel(), "unaryRules"),
-        new File(commandLineOptions.getModel(), "binaryRules"),
-        commandLineOptions.getUnrestrictedRules() ? null : new File(commandLineOptions.getModel(), "seenRules")
+        opts.getRootCategories(),
+        new File(opts.getModel(), "unaryRules"),
+        new File(opts.getModel(), "binaryRules"),
+        opts.getUnrestrictedRules() ? null : new File(opts.getModel(), "seenRules")
     );
 
-    OutputFormat outputFormat = OutputFormat.valueOf(commandLineOptions.getOutputFormat().toUpperCase());
+    OutputFormat outputFormat = OutputFormat.valueOf(opts.getOutputFormat().toUpperCase());
+
     final ParsePrinter printer = outputFormat.printer;
 
     if ((outputFormat == OutputFormat.PROLOG || outputFormat == OutputFormat.EXTENDED) && input != InputFormat.POSANDNERTAGGED) throw new Error("Must use \"-i POSandNERtagged\" for this output");
 
     final boolean readingFromStdin;
     final Iterator<String> inputLines;
-    if (commandLineOptions.getInputFile().getName().isEmpty()) {
+    if (opts.getInputFile().getName().isEmpty()) {
       // Read from STDIN
       inputLines = new Scanner(System.in,"UTF-8");
       readingFromStdin = true;
     } else {
       // Read from file
-      inputLines = Util.readFile(commandLineOptions.getInputFile()).iterator();
+      inputLines = Util.readFile(opts.getInputFile()).iterator();
       readingFromStdin = false;
     }
 
@@ -165,7 +167,7 @@ public class EasyCCG
     Stopwatch timer = Stopwatch.createStarted();
     final SuperTaggingResults supertaggingResults = new SuperTaggingResults();
     final Results dependencyResults = new Results();
-    ExecutorService executorService = Executors.newFixedThreadPool(commandLineOptions.getThreads());
+    ExecutorService executorService = Executors.newFixedThreadPool(opts.getThreads());
     
     final Iterator<String> goldDependencyParses;
     
@@ -173,9 +175,9 @@ public class EasyCCG
     
     // Used in Oracle experiments.
     final boolean usingGoldFile;
-    if (!commandLineOptions.getGoldDependenciesFile().getPath().isEmpty()) {
-      if (!commandLineOptions.getGoldDependenciesFile().exists()) {
-        throw new RuntimeException("Can't find gold dependencies file: " + commandLineOptions.getGoldDependenciesFile());
+    if (!opts.getGoldDependenciesFile().getPath().isEmpty()) {
+      if (!opts.getGoldDependenciesFile().exists()) {
+        throw new RuntimeException("Can't find gold dependencies file: " + opts.getGoldDependenciesFile());
       }
 
       if (input != InputFormat.GOLD) {
@@ -183,8 +185,8 @@ public class EasyCCG
       }
         
       usingGoldFile = true;
-      goldDependencyParses = Util.readFile(commandLineOptions.getGoldDependenciesFile()).iterator();
-      goldInputReader  = InputReader.make(InputFormat.GOLD, new SyntaxTreeNodeFactory(commandLineOptions.getMaxLength(), 0));
+      goldDependencyParses = Util.readFile(opts.getGoldDependenciesFile()).iterator();
+      goldInputReader  = InputReader.make(InputFormat.GOLD, new SyntaxTreeNodeFactory(opts.getMaxLength(), 0));
       while (goldDependencyParses.hasNext()) {
         String line = goldDependencyParses.next();
         // Skip header
@@ -269,13 +271,14 @@ public class EasyCCG
     System.err.println("Sentences parsed: " + supertaggingResults.parsedSentences);
     System.err.println("Speed: " + twoDP.format(1000.0 * supertaggingResults.parsedSentences.get() / timer.elapsed(TimeUnit.MILLISECONDS)) + " sentences per second");
 
-    if (commandLineOptions.getTiming()) {
+    if (opts.getTiming()) {
       printDetailedTiming(parser, twoDP);
     }
-  }
+  }  // End of main()
 
-  public static void printDetailedTiming(final Parser parser, DecimalFormat format)
-  {
+
+
+  public static void printDetailedTiming(final Parser parser, DecimalFormat format) {
     // Prints some statistic about how long each length sentence took to parse.
     int sentencesCovered = 0;
     Multimap<Integer, Long> sentenceLengthToParseTimeInNanos = parser.getSentenceLengthToParseTimeInNanos();

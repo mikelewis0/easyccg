@@ -1,0 +1,5 @@
+*.class
+bin/*
+input
+models
+easyccg.jar
